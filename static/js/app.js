@@ -10,6 +10,7 @@ const app = createApp({
         // --- 全局状态 ---
         const currentUser = ref("");
         const loginInput = ref("");
+        const isCollectOnly = ref(false);
         
         // --- Tab 控制与动画状态 ---
         const currentTab = ref('AudioCollector'); // 默认显示第一个节点
@@ -68,7 +69,15 @@ const app = createApp({
             localStorage.removeItem("whisper_username");
         };
 
-        onMounted(() => {
+        onMounted(async () => { 
+            try {
+                const configRes = await fetch('/api/config');
+                const configData = await configRes.json();
+                isCollectOnly.value = configData.collect_only;
+            } catch (e) {
+                console.error("获取系统配置失败", e);
+            }
+            
             const savedName = localStorage.getItem("whisper_username");
             if (savedName) {
                 currentUser.value = savedName;
@@ -79,6 +88,7 @@ const app = createApp({
         return { 
             currentUser, 
             loginInput, 
+            isCollectOnly,
             currentTab, 
             transitionName,  // 导出动画类名
             changeTab,       // 导出切换事件

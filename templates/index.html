@@ -62,7 +62,7 @@
                 </keep-alive>
             </transition>
             
-            <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 sm:px-0">
+            <div v-if="!isCollectOnly" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 sm:px-0">
                 <div class="relative flex w-full bg-white/70 backdrop-blur-xl p-1.5 rounded-2xl shadow-2xl border border-white/60">
                     
                     <div class="absolute top-1.5 bottom-1.5 w-[calc(33.33%-6px)] bg-blue-500 rounded-xl shadow-md transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) z-0"
