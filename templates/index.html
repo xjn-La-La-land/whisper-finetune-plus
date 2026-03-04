@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音采集与微调控制台</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        /* 定义左右滑动的丝滑过场动画 */
+        .slide-left-enter-active, .slide-left-leave-active,
+        .slide-right-enter-active, .slide-right-leave-active {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* 前进：新页面从右边滑入，老页面向左边退去 */
+        .slide-left-enter-from { opacity: 0; transform: translateX(40px); }
+        .slide-left-leave-to { opacity: 0; transform: translateX(-40px); }
+
+        /* 后退：新页面从左边滑入，老页面向右边退去 */
+        .slide-right-enter-from { opacity: 0; transform: translateX(-40px); }
+        .slide-right-leave-to { opacity: 0; transform: translateX(40px); }
+    </style>
+</head>
+<body class="bg-blue-50 font-sans min-h-screen pb-28 text-gray-800">
+    <div id="app" class="max-w-5xl mx-auto px-4 relative h-full">
+        
+        <div v-if="!currentUser" class="fixed inset-0 z-[200] bg-blue-50/95 backdrop-blur-md flex items-center justify-center">
+            <div class="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full mx-4 border border-blue-100 text-center transform transition-all">
+                <h2 class="text-2xl font-extrabold text-gray-800 mb-2">欢迎来到whisper语音识别小助手！</h2>
+                <p class="text-gray-500 mb-8 text-sm">请输入你的专属代号╰(*°▽°*)╯</p>
+                <input v-model="loginInput" @keyup.enter="handleAuth('login')" type="text" placeholder="例如：哈基米/LolCat" class="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl px-5 py-4 text-lg text-center font-bold focus:outline-none focus:border-blue-400 focus:bg-white transition mb-6 shadow-sm placeholder-gray-300">
+                <div class="flex flex-col gap-3">
+                    <button @click="handleAuth('login')" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-extrabold text-lg py-4 rounded-2xl shadow-lg shadow-blue-500/30 transition transform hover:-translate-y-1 active:translate-y-0">直接登录</button>
+                    <button @click="handleAuth('register')" class="w-full bg-white text-blue-600 border-2 border-blue-100 hover:bg-blue-50 font-extrabold text-lg py-3 rounded-2xl transition shadow-sm hover:-translate-y-1 active:translate-y-0">注册新代号</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="currentUser">
+            <div class="sticky top-0 z-50 bg-blue-50/60 backdrop-blur-xl pt-5 pb-3 mb-4 -mx-4 px-4 border-b border-white/40 shadow-sm transition-all">
+                <div class="flex items-center justify-between max-w-3xl mx-auto">
+                    <div class="flex-1"></div>
+                    <h1 class="text-2xl md:text-3xl font-extrabold text-blue-600 text-center tracking-wider flex items-center justify-center gap-2 flex-[2] whitespace-nowrap">
+                        <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                        whisper语音识别小助手
+                    </h1>
+                    <div class="flex-1 flex justify-end">
+                        <div class="bg-white/80 border border-blue-100 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-sm text-sm font-bold text-gray-600">
+                            👤 {{ currentUser }}
+                            <button @click="handleLogout" title="退出登录" class="bg-gray-100 hover:bg-red-50 hover:text-red-500 p-1.5 rounded-full transition"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <transition :name="transitionName" mode="out-in">
+                <keep-alive>
+                    <component :is="currentTab" :current-user="currentUser"></component>
+                </keep-alive>
+            </transition>
+            
+            <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 sm:px-0">
+                <div class="relative flex w-full bg-white/70 backdrop-blur-xl p-1.5 rounded-2xl shadow-2xl border border-white/60">
+                    
+                    <div class="absolute top-1.5 bottom-1.5 w-[calc(33.33%-6px)] bg-blue-500 rounded-xl shadow-md transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) z-0"
+                         :class="currentTab === 'AudioCollector' ? 'left-1.5' : (currentTab === 'FinetunePanel' ? 'left-[33.33%]' : 'left-[calc(66.66%+1.5px)]')">
+                    </div>
+
+                    <button @click="changeTab('AudioCollector')" class="relative z-10 flex-1 py-3 flex items-center justify-center gap-2 rounded-xl font-extrabold text-sm md:text-base transition-colors duration-300" :class="currentTab === 'AudioCollector' ? 'text-white' : 'text-gray-500 hover:text-blue-500'">🎙️ 音频采集</button>
+                    <button @click="changeTab('FinetunePanel')" class="relative z-10 flex-1 py-3 flex items-center justify-center gap-2 rounded-xl font-extrabold text-sm md:text-base transition-colors duration-300" :class="currentTab === 'FinetunePanel' ? 'text-white' : 'text-gray-500 hover:text-blue-500'">⚙️ 模型微调</button>
+                    <button @click="changeTab('InferencePanel')" class="relative z-10 flex-1 py-3 flex items-center justify-center gap-2 rounded-xl font-extrabold text-sm md:text-base transition-colors duration-300" :class="currentTab === 'InferencePanel' ? 'text-white' : 'text-gray-500 hover:text-blue-500'">✨ 语音识别</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <template id="tpl-audio-collector">
+        <div>
+            <div class="sticky top-[76px] z-40 bg-blue-50/40 backdrop-blur-lg pt-2 pb-4 mb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+                <div class="mb-5 px-1 max-w-3xl mx-auto flex items-end gap-4">
+                    <div class="flex-1">
+                        <div class="flex justify-between text-sm font-bold text-gray-500 mb-1">
+                            <span>当前录音进度</span>
+                            <span class="text-blue-600">{{ completedCount }} / {{ tasks.length }} ({{ progressPercentage }}%)</span>
+                        </div>
+                        <div class="w-full bg-gray-200/80 rounded-full h-2.5 overflow-hidden shadow-inner">
+                            <div class="bg-gradient-to-r from-green-400 to-green-500 h-2.5 rounded-full transition-all duration-500 ease-out" :style="{ width: progressPercentage + '%' }"></div>
+                        </div>
+                    </div>
+                    <button v-if="tasks.length > 0" @click="clearAllTasks" class="flex-shrink-0 text-red-500 hover:text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-xl text-sm font-bold transition flex items-center gap-1.5 border border-transparent hover:border-red-100 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>清空全部</button>
+                </div>
+                <div class="bg-white/90 p-3 rounded-2xl shadow-sm border border-white flex flex-col md:flex-row gap-4 justify-between items-center">
+                    <div class="flex items-center gap-2 w-full md:w-auto">
+                        <input type="file" ref="txtInput" accept=".txt" class="block w-full text-sm text-gray-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-600 hover:file:bg-blue-100 transition-colors" />
+                        
+                        <div class="relative group flex items-center cursor-help">
+                            <span class="text-gray-400 hover:text-blue-500 text-xl transition-colors">❓</span>
+                            <div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-56 p-3 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+                                <p class="font-bold mb-1 text-blue-300">TXT 格式示例 (每行一句)：</p>
+                                <p class="text-gray-200 leading-relaxed">今天天气真好。<br>我想吃冰淇淋。<br>床前明月光。</p>
+                                <div class="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-gray-800"></div>
+                            </div>
+                        </div>
+
+                        <button @click="uploadTxt" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold transition whitespace-nowrap ml-1 shadow-sm flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>导入</button>
+                    </div>
+                    <div class="flex items-center gap-2 w-full md:w-auto">
+                        <input v-model="newTaskText" type="text" placeholder="手动输入一句文本..." class="flex-1 md:w-64 border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white transition" @keyup.enter="addTask" />
+                        <button @click="addTask" class="bg-green-500 hover:bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold transition whitespace-nowrap shadow-sm flex items-center gap-1.5"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>添加</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div v-for="(task, index) in tasks" :key="task.id" @click="openFocusMode(index)" class="bg-white p-4 rounded-2xl shadow-sm border border-transparent group relative flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer" :class="task.is_completed ? 'bg-green-50/40 border-green-200' : 'hover:border-blue-200'">
+                    
+                    <div class="flex items-center flex-1 pr-10 md:pr-4">
+                        <span class="flex-shrink-0 bg-blue-50 text-blue-600 rounded-full w-9 h-9 flex items-center justify-center font-bold mr-4 shadow-sm border border-blue-100">{{ index + 1 }}</span>
+                        <div class="flex-1">
+                            <div v-if="editingTaskId === task.id" class="flex gap-2 w-full" @click.stop>
+                                <input v-model="editingTaskText" type="text" class="flex-1 border-b-2 border-blue-400 focus:outline-none px-1 text-lg font-medium text-gray-800 bg-blue-50/50 rounded-t" @keyup.enter="saveEdit(task.id)" />
+                                <button @click="saveEdit(task.id)" class="text-green-600 font-bold hover:bg-green-100 px-3 py-1 rounded transition whitespace-nowrap">保存</button>
+                                <button @click="cancelEdit" class="text-gray-400 font-bold hover:bg-gray-100 px-3 py-1 rounded transition whitespace-nowrap">取消</button>
+                            </div>
+                            <p v-else class="text-lg font-medium text-gray-700 leading-snug">{{ task.text_content }}</p>
+                        </div>
+                    </div>
+
+                    <div v-if="editingTaskId !== task.id" class="absolute top-4 right-4 md:static md:opacity-0 md:group-hover:opacity-100 transition-opacity flex gap-2" @click.stop>
+                        <button @click="startEditing(task)" title="修改" class="text-gray-400 hover:text-blue-500 p-1.5 rounded-lg hover:bg-blue-50 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>
+                        <button @click="deleteTask(task.id)" title="删除" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                    </div>
+                    
+                    <div class="flex items-center gap-3 w-full md:w-auto justify-end mt-2 md:mt-0 p-2 md:p-0 rounded-xl" @click.stop>
+                        <button v-if="processingTaskId === task.id" disabled class="bg-gray-200 text-gray-500 px-5 py-2 rounded-full font-bold flex items-center gap-2 cursor-not-allowed text-sm whitespace-nowrap">
+                            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>处理中
+                        </button>
+                        <button v-else-if="recordingTaskId === task.id" @click.stop="stopRecording(task.id)" class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-full font-bold transition flex items-center gap-2 animate-pulse text-sm whitespace-nowrap shadow-md shadow-red-500/30">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"></path></svg>停止
+                        </button>
+                        <button v-else @click.stop="startRecording(task.id)" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-full font-bold transition flex items-center gap-1.5 text-sm whitespace-nowrap shadow-sm shadow-blue-500/30" :class="task.is_completed ? 'bg-orange-400 hover:bg-orange-500 shadow-orange-500/30' : ''">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>{{ task.is_completed ? '重录' : '录音' }}
+                        </button>
+
+                        <div v-if="task.is_completed && processingTaskId !== task.id" class="hidden sm:flex items-center gap-1 bg-green-100/80 text-green-700 px-3 py-1.5 rounded-full text-xs font-bold border border-green-200 shadow-inner">
+                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>完成
+                        </div>
+                        
+                        <custom-audio v-if="task.is_completed && task.audio_path && processingTaskId !== task.id" :src="task.audio_path"></custom-audio>
+                    </div>
+                </div>
+                
+                <div v-if="tasks.length === 0" class="text-center py-20 text-gray-400 font-medium">
+                    <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+                    <p>该代号下还没有任务哦，请在上方导入文本或手动添加吧！</p>
+                </div>
+            </div>
+
+            <div v-if="focusedTaskIndex !== null && focusedTask" class="fixed inset-0 z-[100] flex items-center justify-center">
+                <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" @click="closeFocusMode"></div>
+
+                <div class="relative z-10 w-full max-w-5xl px-4 flex items-center justify-between pointer-events-none">
+                    
+                    <button @click.stop="prevFocusTask" :disabled="focusedTaskIndex === 0" class="pointer-events-auto p-3 md:p-5 rounded-full bg-white/20 text-white hover:bg-white/30 disabled:opacity-0 disabled:cursor-not-allowed transition transform hover:-translate-x-2 shadow-xl backdrop-blur-sm">
+                        <svg class="w-8 h-8 md:w-10 md:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                    </button>
+
+                    <div class="pointer-events-auto bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl mx-2 md:mx-6 p-8 md:p-14 flex flex-col items-center text-center transform transition-all duration-300 border border-blue-50 relative">
+                        
+                        <button @click.stop="closeFocusMode" class="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition transform hover:rotate-90 bg-gray-100 rounded-full p-2">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+
+                        <div class="bg-blue-100 text-blue-700 px-5 py-1.5 rounded-full text-sm font-extrabold mb-8 shadow-inner border border-blue-200">
+                            闯关进度：{{ focusedTaskIndex + 1 }} / {{ tasks.length }}
+                        </div>
+
+                        <h2 class="text-3xl md:text-5xl font-extrabold text-gray-800 leading-tight mb-14 tracking-wide">
+                            {{ focusedTask.text_content }}
+                        </h2>
+
+                        <div class="flex flex-col items-center gap-8 w-full">
+                            <div class="flex items-center justify-center gap-4 w-full">
+                                <button v-if="processingTaskId === focusedTask.id" disabled class="bg-gray-200 text-gray-500 px-8 py-4 rounded-full font-bold flex items-center gap-3 cursor-not-allowed text-xl shadow-inner">
+                                    <svg class="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>格式处理中...
+                                </button>
+                                <button v-else-if="recordingTaskId === focusedTask.id" @click.stop="stopRecording(focusedTask.id)" class="bg-red-500 hover:bg-red-600 text-white px-10 py-5 rounded-full font-extrabold transition flex items-center gap-3 animate-pulse text-xl shadow-xl shadow-red-500/40 transform hover:scale-105">
+                                    <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"></path></svg>停止录制
+                                </button>
+                                <button v-else @click.stop="startRecording(focusedTask.id)" class="bg-blue-500 hover:bg-blue-600 text-white px-10 py-5 rounded-full font-extrabold transition flex items-center gap-3 text-xl shadow-xl shadow-blue-500/30 transform hover:scale-105" :class="focusedTask.is_completed ? 'bg-orange-400 hover:bg-orange-500 shadow-orange-500/30' : ''">
+                                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>{{ focusedTask.is_completed ? '重新挑战 (重录)' : '点击开始录音' }}
+                                </button>
+                            </div>
+                            
+                            <div v-if="focusedTask.is_completed && focusedTask.audio_path && processingTaskId !== focusedTask.id" class="mt-4 flex flex-col items-center gap-6 w-full">
+                                <div class="flex items-center gap-2 text-green-600 font-bold text-xl bg-green-50 px-6 py-2.5 rounded-full border border-green-200 shadow-sm">
+                                    <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>录制成功！
+                                </div>
+                                <div class="transform scale-125 md:scale-150 origin-top mt-4">
+                                    <custom-audio :src="focusedTask.audio_path"></custom-audio>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button @click.stop="nextFocusTask" :disabled="focusedTaskIndex === tasks.length - 1" class="pointer-events-auto p-3 md:p-5 rounded-full bg-white/20 text-white hover:bg-white/30 disabled:opacity-0 disabled:cursor-not-allowed transition transform hover:translate-x-2 shadow-xl backdrop-blur-sm">
+                        <svg class="w-8 h-8 md:w-10 md:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
+                    
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-finetune-panel">
+        <div class="max-w-4xl mx-auto space-y-6 pb-10">
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-blue-50 text-center relative overflow-hidden">
+                <div class="absolute -right-6 -top-6 w-32 h-32 bg-blue-50 rounded-full opacity-50 pointer-events-none"></div>
+                <div class="absolute -left-6 -bottom-6 w-24 h-24 bg-green-50 rounded-full opacity-50 pointer-events-none"></div>
+                <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800 mb-2 relative z-10 flex items-center justify-center gap-2">
+                    ⚙️ 为 <span class="text-blue-600">[{{ currentUser }}]</span> 定制专属声音模型
+                </h2>
+                <p class="text-gray-500 text-sm font-medium relative z-10">只需简单几步，让 AI 越来越懂孩子的声音！</p>
+            </div>
+
+            <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 transition hover:shadow-md">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="bg-blue-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg shadow-sm">1</span>
+                    <h3 class="text-xl font-extrabold text-gray-800">整理录音数据</h3>
+                </div>
+                
+                <div class="flex flex-col md:flex-row items-center gap-6 bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                    <div class="flex-1 w-full">
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
+                            <span>留作测试的录音比例 <span class="text-gray-400 font-normal">(Test Ratio)</span></span>
+                            <span class="text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">{{ Math.round(datasetParams.test_ratio * 100) }}%</span>
+                        </label>
+                        <div class="flex items-center gap-4">
+                            <input type="range" min="0.01" max="0.2" step="0.01" v-model.number="datasetParams.test_ratio" class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                            <input type="number" min="0.01" max="0.2" step="0.01" v-model.number="datasetParams.test_ratio" class="w-20 px-3 py-1.5 border border-gray-200 rounded-xl text-center focus:outline-none focus:border-blue-400 font-bold text-gray-700">
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2">💡 预留一小部分录音不参与学习，用来充当“期末考试”检验 AI 的学习成果。</p>
+                    </div>
+                    
+                    <div class="flex-shrink-0 w-full md:w-auto">
+                        <button @click="handleBuildDataset" :disabled="isBuilding" class="w-full md:w-auto bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-8 py-4 rounded-2xl font-extrabold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30">
+                            <svg v-if="isBuilding" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            {{ isBuilding ? '整理中...' : '生成数据集' }}
+                        </button>
+                    </div>
+                </div>
+                
+                <div v-if="buildResult" class="mt-4 p-4 rounded-xl text-sm font-bold flex items-center gap-2" :class="buildResult.success ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'">
+                    <span v-if="buildResult.success">✅ 成功准备了 {{ buildResult.train_count }} 条学习数据，{{ buildResult.test_count }} 条测试数据！</span>
+                    <span v-else>❌ {{ buildResult.message }}</span>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 transition hover:shadow-md" :class="!hasDataset ? 'opacity-60 pointer-events-none grayscale-[30%]' : ''">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <span class="bg-blue-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg shadow-sm">2</span>
+                        <h3 class="text-xl font-extrabold text-gray-800">调整微调参数</h3>
+                    </div>
+                    <span v-if="!hasDataset" class="text-xs font-bold text-orange-500 bg-orange-50 px-3 py-1 rounded-full border border-orange-100">请先完成第 1 步</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
+                            <span>训练轮数 <span class="text-gray-400 font-normal">(Epochs)</span></span>
+                        </label>
+                        <div class="flex items-center gap-4">
+                            <input type="range" min="1" max="100" step="1" v-model.number="finetuneParams.epochs" class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                            <input type="number" min="1" max="100" step="1" v-model.number="finetuneParams.epochs" class="w-20 px-3 py-1.5 border border-gray-200 rounded-xl text-center focus:outline-none focus:border-blue-400 font-bold text-gray-700">
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-1.5">让 AI 把全部录音反复听多少遍。默认 20 遍。</p>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
+                            <span>学习步长 <span class="text-gray-400 font-normal">(Learning Rate)</span></span>
+                        </label>
+                        <div class="flex items-center gap-4">
+                            <input type="range" min="0.00001" max="0.001" step="0.00001" v-model.number="finetuneParams.learning_rate" class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                            <input type="number" min="0.00001" max="0.001" step="0.00001" v-model.number="finetuneParams.learning_rate" class="w-24 px-3 py-1.5 border border-gray-200 rounded-xl text-center focus:outline-none focus:border-blue-400 font-bold text-gray-700">
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-1.5">步伐太大容易学偏，太小学的太慢。默认 0.0002。</p>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
+                            <span>单次批处理大小 <span class="text-gray-400 font-normal">(Batch Size)</span></span>
+                        </label>
+                        <div class="flex items-center gap-4">
+                            <input type="range" min="1" max="32" step="1" v-model.number="finetuneParams.batch_size" class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                            <input type="number" min="1" max="32" step="1" v-model.number="finetuneParams.batch_size" class="w-20 px-3 py-1.5 border border-gray-200 rounded-xl text-center focus:outline-none focus:border-blue-400 font-bold text-gray-700">
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-1.5">每次同时听几句话。数值越大越考验显卡。默认 8。</p>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
+                            <span>梯度累计步数 <span class="text-gray-400 font-normal">(Grad Accumulation)</span></span>
+                        </label>
+                        <div class="flex items-center gap-4">
+                            <input type="range" min="1" max="16" step="1" v-model.number="finetuneParams.gradient_accumulation_steps" class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                            <input type="number" min="1" max="16" step="1" v-model.number="finetuneParams.gradient_accumulation_steps" class="w-20 px-3 py-1.5 border border-gray-200 rounded-xl text-center focus:outline-none focus:border-blue-400 font-bold text-gray-700">
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-1.5">如果电脑提示“显存不足”而报错，请尝试调大此数值（如 2 或 4），通过“用时间换空间”来避免崩溃。默认 1。</p>
+                    </div>
+
+                    <div class="flex flex-col justify-center gap-3 bg-gray-50/50 p-4 rounded-2xl border border-gray-100">
+                        <label class="flex items-center justify-between cursor-pointer group">
+                            <div class="flex items-center gap-2 text-sm font-bold text-gray-600 group-hover:text-blue-500 transition">
+                                <span class="text-lg">🧠</span> 开启 AdaLora 动态学习策略
+                            </div>
+                            <input type="checkbox" v-model="finetuneParams.use_adalora" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
+                        </label>
+                        <label class="flex items-center justify-between cursor-pointer group">
+                            <div class="flex items-center gap-2 text-sm font-bold text-gray-600 group-hover:text-blue-500 transition">
+                                <span class="text-lg">📦</span> 开启 8-bit 量化 (省显存)
+                            </div>
+                            <input type="checkbox" v-model="finetuneParams.use_8bit" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
+                        </label>
+                        <label class="flex items-center justify-between cursor-pointer group">
+                            <div class="flex items-center gap-2 text-sm font-bold text-gray-600 group-hover:text-blue-500 transition">
+                                <span class="text-lg"> ⚡ </span> 开启 FP16 混合精度加速
+                            </div>
+                            <input type="checkbox" v-model="finetuneParams.fp16" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
+                        </label>
+                    </div>
+
+                    <div class="col-span-1 md:col-span-2 bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-4">
+                            <span class="flex items-center gap-2">
+                                ⏱️ 有效音频时长范围 <span class="text-gray-400 font-normal">(仅学习该长度内的录音)</span>
+                            </span>
+                            <span class="text-blue-600 bg-white px-3 py-1 rounded-xl shadow-sm border border-blue-100">
+                                {{ finetuneParams.min_audio_len }} 秒 ~ {{ finetuneParams.max_audio_len }} 秒
+                            </span>
+                        </label>
+                        
+                        <div class="relative w-full h-10 flex items-center mb-2 px-2">
+                            <div class="absolute left-2 right-2 h-2.5 bg-gray-200 rounded-full"></div>
+                            
+                            <div class="absolute h-2.5 bg-blue-400 rounded-full pointer-events-none"
+                                 :style="{ 
+                                     left: `calc(0.5rem + ${(finetuneParams.min_audio_len / 30) * (100 - 1.5)}%)`, 
+                                     right: `calc(0.5rem + ${(1 - finetuneParams.max_audio_len / 30) * (100 - 1.5)}%)` 
+                                 }">
+                            </div>
+                            
+                            <input type="range" min="0" max="30" step="0.5" 
+                                   v-model.number="finetuneParams.min_audio_len" 
+                                   @input="enforceMinLen"
+                                   class="absolute left-0 w-full h-2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-blue-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer z-10">
+                            
+                            <input type="range" min="0" max="30" step="0.5" 
+                                   v-model.number="finetuneParams.max_audio_len" 
+                                   @input="enforceMaxLen"
+                                   class="absolute left-0 w-full h-2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-4 [&::-webkit-slider-thumb]:border-blue-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer z-20">
+                        </div>
+                        
+                        <p class="text-[12px] text-gray-400">💡 太短可能是误触噪音，太长可能会导致显存不够。建议保持在 0.5 ~ 30 秒之间。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 text-center transition hover:shadow-md" :class="!hasDataset ? 'opacity-60 pointer-events-none grayscale-[30%]' : ''">
+                <button @click="handleStartFinetune" :disabled="isTraining || !hasDataset" class="w-full md:w-auto bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 disabled:from-gray-300 disabled:to-gray-400 text-white px-12 py-5 rounded-full font-extrabold text-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3 shadow-xl mx-auto mb-6 disabled:transform-none disabled:shadow-none">
+                    <svg v-if="!isTraining" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <svg v-else class="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    {{ isTraining ? '模型正在努力学习中...' : '启动微调训练！' }}
+                </button>
+                
+                <div class="relative h-80 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 overflow-hidden">
+                    <div ref="chartRef" class="w-full h-full absolute inset-0 z-10 transition-opacity duration-500" :class="{ 'opacity-0': !hasChartData, 'opacity-100': hasChartData }"></div>
+
+                    <div v-if="!hasChartData" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 z-0">
+                        <span class="text-3xl mb-2">📈</span>
+                        <p class="font-bold text-sm">学习效果曲线 (Loss) 将在这里实时呈现</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 transition hover:shadow-md mt-6" 
+                 :class="!hasModel ? 'opacity-60 pointer-events-none grayscale-[30%]' : ''">
+                 
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <span class="bg-blue-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg shadow-sm">3</span>
+                        <h3 class="text-xl font-extrabold text-gray-800">模型微调效果评估 <span class="text-sm text-gray-400 font-normal ml-2">拿预留的测试集检验一下</span></h3>
+                    </div>
+                    <span v-if="!hasModel" class="text-xs font-bold text-orange-500 bg-orange-50 px-3 py-1 rounded-full border border-orange-100">需先完成训练</span>
+                </div>
+
+                <div class="flex flex-col md:flex-row items-center gap-6 bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                    
+                    <div class="flex-1 text-left">
+                        <p class="text-gray-600 font-bold mb-2">测试指标：字错率 (CER)</p>
+                        <p class="text-xs text-gray-400 leading-relaxed">
+                            AI 会尝试听取之前没学过的“测试录音”，并把你预留的文本和它自己听写出来的文本进行比对。<br>
+                            👉 <b>字错率越低，说明模型越能听懂孩子的话！</b> (0% 代表完美识别)
+                        </p>
+                    </div>
+
+                    <div class="flex flex-col items-center gap-3">
+                        <button @click="handleEvaluate" :disabled="isEvaluating" class="w-full md:w-auto bg-indigo-500 hover:bg-indigo-600 disabled:bg-gray-300 text-white px-8 py-3 rounded-2xl font-extrabold transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30">
+                            <svg v-if="isEvaluating" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            {{ isEvaluating ? 'AI 正在批改卷子...' : '立即开始评估' }}
+                        </button>
+
+                        <div v-if="evalResult !== null" class="bg-white border-2 border-indigo-100 px-6 py-2 rounded-xl shadow-sm text-center transform hover:scale-105 transition">
+                            <span class="text-gray-500 font-bold text-sm">本次考试得分(CER)</span><br>
+                            <span class="text-2xl font-black text-indigo-600">{{ (evalResult * 100).toFixed(2) }}%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </template>
+
+    <template id="tpl-custom-audio">
+        <div class="flex items-center gap-2 bg-blue-50/80 px-3 py-1.5 rounded-full border border-blue-100/50 w-40 sm:w-48 shadow-inner transition hover:bg-blue-100/80" @click.stop>
+            <audio ref="audioEl" :src="src" @timeupdate="onTimeUpdate" @loadedmetadata="onLoaded" @ended="onEnded" @play="onPlay" preload="metadata"></audio>
+            <button @click="togglePlay" class="text-blue-500 hover:text-blue-600 focus:outline-none flex-shrink-0 transition transform hover:scale-110">
+                <svg v-if="!isPlaying" class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                <svg v-else class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
+            </button>
+            <div class="flex-1 h-1.5 bg-gray-200 rounded-full cursor-pointer relative" @click="seek">
+                <div class="absolute top-0 left-0 h-full bg-blue-400 rounded-full pointer-events-none transition-all duration-75" :style="{ width: progress + '%' }"></div>
+            </div>
+            <div class="text-[10px] text-gray-500 font-bold w-6 text-right flex-shrink-0 tabular-nums">{{ Math.ceil(duration || 0) }}s</div>
+        </div>
+    </template>
+
+    <template id="tpl-inference-panel">
+        <div class="max-w-4xl mx-auto space-y-6 pb-16">
+            <div class="bg-white p-8 rounded-3xl shadow-sm border border-blue-50 text-center relative overflow-hidden">
+                <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-50 rounded-full opacity-50"></div>
+                <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800 mb-2 relative z-10 flex items-center justify-center gap-2">
+                    ✨ 正在见证 <span class="text-blue-600">[{{ currentUser }}]</span> 的声音奇迹
+                </h2>
+                <p class="text-gray-500 text-sm font-medium relative z-10">AI 已经准备好倾听了！它会优先使用您的专属模型，让识别更准确。</p>
+            </div>
+
+            <div class="bg-gray-900 rounded-[2.5rem] shadow-2xl border-[6px] border-gray-800 p-6 md:p-10 relative flex flex-col min-h-[450px] transition-all">
+                <div class="flex items-center justify-between mb-6 border-b border-gray-800 pb-4">
+                    <div class="flex gap-2.5">
+                        <div class="w-3.5 h-3.5 rounded-full bg-red-500 shadow-lg shadow-red-500/20"></div>
+                        <div class="w-3.5 h-3.5 rounded-full bg-yellow-500 shadow-lg shadow-yellow-500/20"></div>
+                        <div class="w-3.5 h-3.5 rounded-full bg-green-500 shadow-lg shadow-green-500/20"></div>
+                    </div>
+                    <div class="px-4 py-1 bg-gray-800 rounded-full text-[10px] text-blue-400 font-mono tracking-widest uppercase">
+                        {{ usedModelType || 'Ready' }}
+                    </div>
+                </div>
+                
+                <div id="terminal-container" class="flex-1 overflow-y-auto font-sans text-xl md:text-2xl leading-relaxed text-gray-100 pr-4 custom-scrollbar">
+                    <div v-for="(line, index) in terminalLines" :key="index" class="mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500"
+                        :class="line.type === 'success' ? 'text-white font-medium' : 'text-blue-400/80 text-sm font-mono'">
+                        <span v-if="line.type === 'success'" class="mr-2 text-blue-500/50">#</span>
+                        {{ line.text }}
+                    </div>
+                    <span v-if="isProcessing" class="inline-block w-3 h-8 bg-blue-500 animate-pulse align-middle ml-2 rounded-sm shadow-lg shadow-blue-500/50"></span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-stretch">
+                <div class="md:col-span-3 bg-white p-6 rounded-[2rem] shadow-sm border border-blue-50 flex flex-wrap gap-6 items-center justify-around">
+                    <div class="flex flex-col gap-2">
+                        <span class="text-xs font-bold text-gray-400 uppercase ml-1">识别权重</span>
+                        <select v-model="params.selected_model" class="bg-blue-50 border-none rounded-2xl px-4 py-3 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner">
+                            <option value="base">基础模型 (whisper-large-v3)</option>
+                            <option v-if="hasModel" value="finetuned">[{{ currentUser }}] 专属模型</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-4 pt-4">
+                        <label class="flex items-center gap-2 cursor-pointer font-bold text-gray-600 transition hover:text-blue-500">
+                            <input type="checkbox" v-model="params.to_simple" class="w-5 h-5 text-blue-600 rounded-lg"> 简体中文
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer font-bold text-gray-600 transition hover:text-blue-500">
+                            <input type="checkbox" v-model="params.remove_pun" class="w-5 h-5 text-blue-600 rounded-lg"> 去除标点
+                        </label>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <span class="text-xs font-bold text-gray-400 uppercase ml-1">精确度 (Beams)</span>
+                        <input type="number" min="1" max="5" v-model.number="params.num_beams" class="w-20 bg-gray-50 border-none rounded-2xl px-4 py-3 text-center font-bold focus:ring-2 focus:ring-blue-400">
+                    </div>
+                </div>
+
+                <div class="md:col-span-1 flex flex-col gap-3">
+                    <button @click="toggleRecording" :disabled="isProcessing && !isRecording" 
+                            class="h-full rounded-[2rem] font-extrabold transition-all duration-300 flex flex-col items-center justify-center shadow-xl gap-2 group"
+                            :class="isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-500 text-white hover:bg-blue-600'">
+                        <span class="text-3xl">{{ isRecording ? '⏹' : '🎙️' }}</span>
+                        <span class="text-sm">{{ isRecording ? '停止识别' : '开始录音' }}</span>
+                    </button>
+                    <button @click="$refs.audioInput.click()" class="bg-white border border-blue-100 text-blue-500 py-3 rounded-2xl font-bold text-xs hover:bg-blue-50 transition shadow-sm">
+                        📁 上传文件识别
+                    </button>
+                    <input type="file" ref="audioInput" accept="audio/*" class="hidden" @change="handleFileUpload">
+                </div>
+            </div>
+
+            <div v-if="tempAudioPath" class="flex justify-center animate-in fade-in zoom-in duration-300">
+                <div class="bg-blue-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-4">
+                    <span class="text-sm font-bold">刚刚录制：</span>
+                    <custom-audio :src="tempAudioPath"></custom-audio>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
