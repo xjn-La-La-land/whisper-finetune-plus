@@ -1,6 +1,7 @@
 # finetune_controller.py
 import os
 import asyncio
+import json
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
@@ -152,7 +153,13 @@ async def log_generator(username: str):
 
             # 读到了新的一行，按照 SSE 规范格式化并 yield 出去
             # SSE 规范要求以 "data: " 开头，以 "\n\n" 结尾
-            yield f"data: {line.strip()}\n\n"
+            try:
+                parsed = json.loads(line.strip())
+                normalized = json.dumps(parsed, ensure_ascii=False, allow_nan=False)
+                yield f"data: {normalized}\n\n"
+            except (json.JSONDecodeError, ValueError):
+                # 跳过损坏行或包含非法 JSON 数值的历史日志，避免前端解析中断
+                continue
 
 
 @router.get("/api/train_stream")
