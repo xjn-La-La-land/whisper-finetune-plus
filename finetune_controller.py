@@ -63,7 +63,12 @@ async def run_finetune_process(req: FinetuneRequest):
     dataset_dir = os.path.join(PROJECT_ROOT, "dataset", req.username)
     output_dir = os.path.join(PROJECT_ROOT, "output", req.username)
     web_log_path = os.path.join(dataset_dir, "training_log.jsonl")
-    
+
+    # 先在后端侧主动清空旧日志，避免 SSE 先读到旧文件后被训练进程 truncate 导致读指针卡在 EOF
+    os.makedirs(dataset_dir, exist_ok=True)
+    with open(web_log_path, "w", encoding="utf-8"):
+        pass
+
     # 构造执行命令
     cmd = [
         "python", "finetune.py",
@@ -163,13 +168,23 @@ async def log_generator(username: str):
         while True:
             line = f.readline()
             if not line:
+                # 如果文件被 truncate（例如新训练刚启动清空日志），读指针可能落在文件末尾之外
+                # 需要把指针拉回文件开头，才能继续读到新写入的数据
+                current_pos = f.tell()
+                try:
+                    file_size = os.path.getsize(log_path)
+                except OSError:
+                    file_size = current_pos
+                if file_size < current_pos:
+                    f.seek(0)
+
                 # 读到了文件末尾（EOF）
                 # 检查当前用户的训练任务是否还在继续
                 if not _is_user_training(username):
                     # 训练已经结束，发送完成信号跳出循环
                     yield f"data: {{\"status\": \"finished\", \"message\": \"训练已完成\"}}\n\n"
                     break
-                
+
                 # 训练还在进行，只是当前没有新日志，稍微让出 CPU 稍后再试
                 await asyncio.sleep(0.5)
                 continue
@@ -192,8 +207,14 @@ async def train_stream(username: str):
     """
     # 返回 StreamingResponse，指定媒体类型为 text/event-stream
     return StreamingResponse(
-        log_generator(username), 
-        media_type="text/event-stream"
+        log_generator(username),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # 如果前面有 Nginx，这个头可以关闭代理缓冲，避免 SSE 被攒包后才下发
+            "X-Accel-Buffering": "no"
+        }
     )
 
 
