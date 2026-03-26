@@ -80,17 +80,15 @@ async def build_dataset(request: DatasetBuildRequest):
     test_data = data_list[:split_idx]
     train_data = data_list[split_idx:]
 
-    # 5. 写入该用户专属的 JSONL 文件
+    # 5. 写入该用户专属的 JSON 文件（标准 JSON 数组，便于直接校验/查看）
     train_path = os.path.join(user_data_dir, "train.json")
     test_path = os.path.join(user_data_dir, "test.json")
 
     with open(train_path, 'w', encoding='utf-8') as f:
-        for item in train_data:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        json.dump(train_data, f, ensure_ascii=False, indent=2)
 
     with open(test_path, 'w', encoding='utf-8') as f:
-        for item in test_data:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        json.dump(test_data, f, ensure_ascii=False, indent=2)
 
     return {
         "message": "数据集构建成功！",
