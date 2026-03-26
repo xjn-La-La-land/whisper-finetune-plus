@@ -1,4 +1,4 @@
-const { ref, onMounted, onUnmounted, nextTick } = Vue;
+const { ref, onMounted, onUnmounted, onActivated, nextTick } = Vue;
 
 export default {
     template: '#tpl-finetune-panel',
@@ -11,6 +11,7 @@ export default {
         
         const isTraining = ref(false);
         const hasChartData = ref(false); // 控制图表和占位符的切换
+        const chartError = ref("");
 
         // 评估模块状态
         const hasModel = ref(false);      // 是否已生成模型
@@ -91,9 +92,23 @@ export default {
 
         // --- ECharts 图表初始化 ---
         const initChart = () => {
-            if (chartRef.value && !myChart) {
-                // 初始化 ECharts 实例
-                myChart = echarts.init(chartRef.value);
+            if (!chartRef.value) return false;
+            if (typeof echarts === 'undefined') {
+                chartError.value = "图表库加载失败，请检查网络后刷新页面";
+                return false;
+            }
+
+            try {
+                if (myChart && (!myChart.isDisposed()) && myChart.getDom() !== chartRef.value) {
+                    myChart.dispose();
+                    myChart = null;
+                }
+
+                if (!myChart) {
+                    // 初始化 ECharts 实例
+                    myChart = echarts.init(chartRef.value);
+                }
+                chartError.value = "";
                 
                 // 配置酷炫的蓝绿色渐变折线图
                 const option = {
@@ -159,15 +174,29 @@ export default {
                     }]
                 };
                 myChart.setOption(option);
+                return true;
+            } catch (err) {
+                chartError.value = "图表初始化失败，请刷新页面重试";
+                console.error("初始化图表失败", err);
+                return false;
             }
         };
 
+        const ensureChartReady = async () => {
+            await nextTick();
+            if (initChart()) return true;
+
+            await new Promise(resolve => setTimeout(resolve, 120));
+            return initChart();
+        };
+
         // --- 监听 SSE 流数据 ---
-        const startSSE = () => {
+        const startSSE = async () => {
             // 如果之前有连接，先关掉
             if (eventSource) eventSource.close();
             
             // 清空图表数据，准备接收新一轮训练数据
+            await ensureChartReady();
             trainLossData = [];
             evalLossData = [];
             if (myChart) myChart.setOption({ series: [{ data: [] }, { data: [] }] });
@@ -281,7 +310,7 @@ export default {
 
                 if (res.ok) {
                     // API 返回成功代表后台进程已成功拉起，开始连 SSE 监听图表数据！
-                    startSSE();
+                    await startSSE();
                 } else {
                     const errorData = await res.json();
                     alert(`启动失败: ${errorData.detail}`);
@@ -300,10 +329,16 @@ export default {
         onMounted(() => {
             // 使用 nextTick 确保 DOM 已经渲染完毕再挂载图表
             nextTick(() => {
-                initChart();
+                ensureChartReady();
             });
             window.addEventListener('resize', handleResize);
             checkModelStatus();
+        });
+
+        onActivated(() => {
+            ensureChartReady().then(() => {
+                if (myChart) myChart.resize();
+            });
         });
 
         onUnmounted(() => {
@@ -321,6 +356,7 @@ export default {
             buildResult,
             isTraining,
             hasChartData,
+            chartError,
             handleBuildDataset,
             handleStartFinetune,
             enforceMinLen,
