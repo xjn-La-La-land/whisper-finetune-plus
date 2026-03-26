@@ -62,6 +62,8 @@ export default {
         const chartRef = ref(null);
         let myChart = null;
         let eventSource = null;
+        let trainLossData = [];
+        let evalLossData = [];
 
         const datasetParams = ref({ test_ratio: 0.05 });
         const finetuneParams = ref({
@@ -95,13 +97,19 @@ export default {
                 
                 // 配置酷炫的蓝绿色渐变折线图
                 const option = {
+                    legend: {
+                        top: 10,
+                        right: 16,
+                        textStyle: { color: '#6B7280', fontWeight: 'bold' },
+                        data: ['训练集 Loss', '验证集 Eval Loss']
+                    },
                     tooltip: { 
                         trigger: 'axis',
                         backgroundColor: 'rgba(255, 255, 255, 0.9)',
                         borderColor: '#E5E7EB',
                         textStyle: { color: '#374151', fontWeight: 'bold' }
                     },
-                    grid: { left: '8%', right: '5%', bottom: '15%', top: '10%' },
+                    grid: { left: '8%', right: '5%', bottom: '15%', top: '18%' },
                     xAxis: { 
                         type: 'value', 
                         name: '步数 (Step)', 
@@ -118,6 +126,7 @@ export default {
                         splitLine: { lineStyle: { type: 'dashed', color: '#E5E7EB' } }
                     },
                     series: [{
+                        name: '训练集 Loss',
                         data: [],
                         type: 'line',
                         smooth: true, // 开启曲线平滑
@@ -129,6 +138,22 @@ export default {
                             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                                 { offset: 0, color: 'rgba(59, 130, 246, 0.4)' },
                                 { offset: 1, color: 'rgba(59, 130, 246, 0.0)' }
+                            ])
+                        }
+                    },
+                    {
+                        name: '验证集 Eval Loss',
+                        data: [],
+                        type: 'line',
+                        smooth: true,
+                        symbol: 'diamond',
+                        symbolSize: 7,
+                        itemStyle: { color: '#10B981' },
+                        lineStyle: { width: 3, color: '#10B981', type: 'dashed' },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(16, 185, 129, 0.25)' },
+                                { offset: 1, color: 'rgba(16, 185, 129, 0.0)' }
                             ])
                         }
                     }]
@@ -143,7 +168,9 @@ export default {
             if (eventSource) eventSource.close();
             
             // 清空图表数据，准备接收新一轮训练数据
-            if (myChart) myChart.setOption({ series: [{ data: [] }] });
+            trainLossData = [];
+            evalLossData = [];
+            if (myChart) myChart.setOption({ series: [{ data: [] }, { data: [] }] });
             hasChartData.value = true;
 
             // 建立长连接
@@ -177,16 +204,17 @@ export default {
                 // 如果是常规的 log 数据 (包含了 step 和 loss)
                 if (data.loss !== undefined && data.step !== undefined) {
                     if (!myChart) return;
-                    // 获取当前图表的数据数组
-                    const currentOption = myChart.getOption();
-                    const currentData = currentOption.series[0].data;
-                    
-                    // 追加新的坐标点 [x, y]
-                    currentData.push([data.step, data.loss]);
-                    
-                    // 增量更新图表
+                    trainLossData.push([data.step, data.loss]);
                     myChart.setOption({
-                        series: [{ data: currentData }]
+                        series: [{ data: trainLossData }, { data: evalLossData }]
+                    });
+                }
+
+                if (data.eval_loss !== undefined && data.step !== undefined) {
+                    if (!myChart) return;
+                    evalLossData.push([data.step, data.eval_loss]);
+                    myChart.setOption({
+                        series: [{ data: trainLossData }, { data: evalLossData }]
                     });
                 }
             };

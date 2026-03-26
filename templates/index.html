@@ -382,7 +382,11 @@
 
                     <div v-if="!hasChartData" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 z-0">
                         <span class="text-3xl mb-2">📈</span>
-                        <p class="font-bold text-sm">学习效果曲线 (Loss) 将在这里实时呈现</p>
+                        <p class="font-bold text-sm">训练集 Loss + 验证集 Eval Loss 将在这里实时呈现</p>
+                        <div class="mt-3 flex items-center gap-4 text-xs font-bold">
+                            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-blue-500"></span>训练集 Loss</span>
+                            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500"></span>验证集 Eval Loss</span>
+                        </div>
                     </div>
                 </div>
             </div>
