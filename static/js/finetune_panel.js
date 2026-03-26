@@ -150,7 +150,13 @@ export default {
             eventSource = new EventSource(`/api/train_stream?username=${encodeURIComponent(props.currentUser)}`);
 
             eventSource.onmessage = (event) => {
-                const data = JSON.parse(event.data);
+                let data = null;
+                try {
+                    data = JSON.parse(event.data);
+                } catch (err) {
+                    console.warn("收到无法解析的训练日志，已跳过：", event.data);
+                    return;
+                }
                 
                 // 判断是否是控制信号
                 if (data.status === 'finished') {
@@ -170,6 +176,7 @@ export default {
 
                 // 如果是常规的 log 数据 (包含了 step 和 loss)
                 if (data.loss !== undefined && data.step !== undefined) {
+                    if (!myChart) return;
                     // 获取当前图表的数据数组
                     const currentOption = myChart.getOption();
                     const currentData = currentOption.series[0].data;
@@ -234,7 +241,7 @@ export default {
                         username: props.currentUser,
                         learning_rate: finetuneParams.value.learning_rate,
                         epochs: finetuneParams.value.epochs,
-                        gradient_accumulation_steps: finetuneParams.value.accumulation_steps,
+                        accumulation_steps: finetuneParams.value.gradient_accumulation_steps,
                         batch_size: finetuneParams.value.batch_size,
                         use_adalora: finetuneParams.value.use_adalora,
                         use_8bit: finetuneParams.value.use_8bit,

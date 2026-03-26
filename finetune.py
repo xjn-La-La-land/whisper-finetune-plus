@@ -3,6 +3,7 @@ import functools
 import os
 import platform
 import json
+import math
 
 from peft import LoraConfig, get_peft_model, AdaLoraConfig, PeftModel, prepare_model_for_kbit_training
 import torch
@@ -77,11 +78,17 @@ class WebMonitorCallback(TrainerCallback):
         拦截 Trainer 打印的每一条日志 (例如 loss, learning_rate, epoch 等)
         """
         if logs and self.log_path:
+            safe_logs = {}
+            for key, value in logs.items():
+                if isinstance(value, float) and not math.isfinite(value):
+                    safe_logs[key] = None
+                else:
+                    safe_logs[key] = value
             # 加上当前的全局步数
-            logs['step'] = state.global_step
+            safe_logs['step'] = state.global_step
             # 追加写入 jsonl 文件，供 FastAPI 实时读取
             with open(self.log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(logs) + "\n")
+                f.write(json.dumps(safe_logs, ensure_ascii=False, allow_nan=False) + "\n")
 
 
 def main():
