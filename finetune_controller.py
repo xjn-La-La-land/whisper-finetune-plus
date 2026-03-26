@@ -1,6 +1,7 @@
 # finetune_controller.py
 import os
 import asyncio
+import json
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
@@ -152,7 +153,13 @@ async def log_generator(username: str):
 
             # 读到了新的一行，按照 SSE 规范格式化并 yield 出去
             # SSE 规范要求以 "data: " 开头，以 "\n\n" 结尾
-            yield f"data: {line.strip()}\n\n"
+            try:
+                parsed = json.loads(line.strip())
+                normalized = json.dumps(parsed, ensure_ascii=False, allow_nan=False)
+                yield f"data: {normalized}\n\n"
+            except (json.JSONDecodeError, ValueError):
+                # 跳过损坏行或包含非法 JSON 数值的历史日志，避免前端解析中断
+                continue
 
 
 @router.get("/api/train_stream")
@@ -165,6 +172,47 @@ async def train_stream(username: str):
         log_generator(username), 
         media_type="text/event-stream"
     )
+
+
+@router.get("/api/train_log_snapshot")
+async def train_log_snapshot(username: str, from_line: int = 0):
+    """
+    轮询兜底接口：按行返回 training_log.jsonl 的增量内容。
+    当前端 SSE 连接受网络/代理影响时，也能持续更新曲线。
+    """
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    log_path = os.path.join(PROJECT_ROOT, "dataset", username, "training_log.jsonl")
+
+    if not os.path.exists(log_path):
+        return {
+            "entries": [],
+            "next_line": from_line,
+            "finished": not _is_user_training(username),
+            "exists": False
+        }
+
+    entries = []
+    current_line = 0
+    with open(log_path, "r", encoding="utf-8") as f:
+        for raw in f:
+            if current_line >= from_line:
+                raw = raw.strip()
+                if not raw:
+                    current_line += 1
+                    continue
+                try:
+                    parsed = json.loads(raw)
+                    entries.append(parsed)
+                except json.JSONDecodeError:
+                    pass
+            current_line += 1
+
+    return {
+        "entries": entries,
+        "next_line": current_line,
+        "finished": not _is_user_training(username),
+        "exists": True
+    }
 
 
 # 模型检查与评估模块
