@@ -10,7 +10,6 @@ export default {
         const buildResult = ref(null);
         
         const isTraining = ref(false);
-        const isGpuBusyByOther = ref(false);
         const hasChartData = ref(false); // 控制图表和占位符的切换
         const chartError = ref("");
 
@@ -63,10 +62,7 @@ export default {
                 const data = await res.json();
 
                 const userIsTraining = data.status === 'TRAINING' && data.current_user === props.currentUser;
-                const busyByOther = data.status === 'TRAINING' && data.current_user !== props.currentUser;
-
                 isTraining.value = userIsTraining;
-                isGpuBusyByOther.value = busyByOther;
 
                 // 刷新后若该用户训练仍在进行，自动重连 SSE
                 if (userIsTraining && !eventSource) {
@@ -265,7 +261,6 @@ export default {
                 // 判断是否是控制信号
                 if (data.status === 'finished') {
                     isTraining.value = false;
-                    isGpuBusyByOther.value = false;
                     eventSource.close();
                     eventSource = null;
                     alert("🎉 恭喜！模型专属微调已成功完成！");
@@ -275,7 +270,6 @@ export default {
                 }
                 if (data.status === 'error') {
                     isTraining.value = false;
-                    isGpuBusyByOther.value = false;
                     eventSource.close();
                     eventSource = null;
                     alert("⚠️ 训练中断或发生错误: " + data.message);
@@ -362,7 +356,6 @@ export default {
 
                 if (res.ok) {
                     // API 返回成功代表后台进程已成功拉起，开始连 SSE 监听图表数据！
-                    isGpuBusyByOther.value = false;
                     await startSSE();
                 } else {
                     const errorData = await res.json();
@@ -406,7 +399,6 @@ export default {
                     hasDataset.value = false;
                     hasModel.value = false;
                     isTraining.value = false;
-                    isGpuBusyByOther.value = false;
                     if (eventSource) {
                         eventSource.close();
                         eventSource = null;
@@ -433,7 +425,6 @@ export default {
             isBuilding,
             buildResult,
             isTraining,
-            isGpuBusyByOther,
             hasChartData,
             chartError,
             handleBuildDataset,
