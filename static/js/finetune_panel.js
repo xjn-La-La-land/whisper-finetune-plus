@@ -22,7 +22,10 @@ export default {
         const checkModelStatus = async () => {
             if (!props.currentUser) return;
             try {
-                const res = await fetch(`/api/check_model?username=${encodeURIComponent(props.currentUser)}`);
+                const res = await fetch(`/api/check_model?username=${encodeURIComponent(props.currentUser)}`, {
+                    cache: 'no-store'
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 hasModel.value = data.has_model;
             } catch (e) {
@@ -30,17 +33,26 @@ export default {
             }
         };
 
+
         // 检查数据集状态（页面刷新后恢复步骤解锁状态）
         const checkDatasetStatus = async () => {
             if (!props.currentUser) return;
             try {
-                const res = await fetch(`/api/check_dataset?username=${encodeURIComponent(props.currentUser)}`);
+                const res = await fetch(`/api/check_dataset?username=${encodeURIComponent(props.currentUser)}`, {
+                    cache: 'no-store'
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 hasDataset.value = Boolean(data.has_dataset);
             } catch (e) {
                 console.error("检查数据集状态失败", e);
             }
         };
+
+        const refreshStepStatus = async () => {
+            await Promise.all([checkDatasetStatus(), checkModelStatus()]);
+        };
+
 
         // 发起评估请求
         const handleEvaluate = async () => {

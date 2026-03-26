@@ -23,9 +23,7 @@ def _is_user_training(username: str) -> bool:
 def _resolve_user_model_path(username: str) -> Optional[str]:
     """
     查找用户微调完成后的 checkpoint-final 目录。
-    兼容两种目录结构：
-    1) output/{username}/checkpoint-final
-    2) output/{username}/{base_model_name}/checkpoint-final
+    目录结构：output/{username}/{base_model_name}/checkpoint-final
     """
     project_root = os.path.dirname(os.path.abspath(__file__))
     user_output_dir = os.path.join(project_root, "output", username)
@@ -208,6 +206,7 @@ class EvaluateRequest(BaseModel):
 @router.get("/api/check_model")
 async def check_model(username: str):
     """前端轮询或初始化时调用，检查该用户是否已经有训练好的模型"""
+
     model_path = _resolve_user_model_path(username)
     return {"has_model": model_path is not None}
 
