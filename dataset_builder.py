@@ -21,6 +21,19 @@ class DatasetBuildRequest(BaseModel):
     username: str
     test_ratio: float = Field(default=0.05, ge=0.0, le=0.5, description="测试集比例")
 
+
+@router.get("/api/check_dataset")
+async def check_dataset(username: str):
+    """检查用户是否已经生成 train/test 数据集文件，供前端刷新后恢复步骤状态。"""
+    username = username.strip()
+    user_data_dir = os.path.join(DATASET_DIR, username)
+    train_path = os.path.join(user_data_dir, "train.json")
+    test_path = os.path.join(user_data_dir, "test.json")
+
+    has_train = os.path.exists(train_path)
+    has_test = os.path.exists(test_path)
+    return {"has_dataset": has_train and has_test}
+
 @router.post("/api/build_dataset")
 async def build_dataset(request: DatasetBuildRequest):
     username = request.username.strip()

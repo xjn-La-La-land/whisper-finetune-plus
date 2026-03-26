@@ -2,6 +2,7 @@
 import os
 import asyncio
 import json
+from typing import Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
@@ -17,6 +18,30 @@ def _is_user_training(username: str) -> bool:
         GPU_STATE.get("status") == GPUStatus.TRAINING
         and GPU_STATE.get("current_user") == username
     )
+
+
+def _resolve_user_model_path(username: str) -> Optional[str]:
+    """
+    查找用户微调完成后的 checkpoint-final 目录。
+    兼容两种目录结构：
+    1) output/{username}/checkpoint-final
+    2) output/{username}/{base_model_name}/checkpoint-final
+    """
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    user_output_dir = os.path.join(project_root, "output", username)
+
+    direct_path = os.path.join(user_output_dir, "checkpoint-final")
+    if os.path.exists(direct_path):
+        return direct_path
+
+    if not os.path.isdir(user_output_dir):
+        return None
+
+    for entry in os.listdir(user_output_dir):
+        candidate = os.path.join(user_output_dir, entry, "checkpoint-final")
+        if os.path.exists(candidate):
+            return candidate
+    return None
 
 class FinetuneRequest(BaseModel):
     username: str
@@ -183,9 +208,8 @@ class EvaluateRequest(BaseModel):
 @router.get("/api/check_model")
 async def check_model(username: str):
     """前端轮询或初始化时调用，检查该用户是否已经有训练好的模型"""
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(PROJECT_ROOT, "output", username, "checkpoint-final")
-    return {"has_model": os.path.exists(model_path)}
+    model_path = _resolve_user_model_path(username)
+    return {"has_model": model_path is not None}
 
 
 @router.post("/api/evaluate")
@@ -199,9 +223,9 @@ async def evaluate_model(req: EvaluateRequest):
     
     PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
     dataset_dir = os.path.join(PROJECT_ROOT, "dataset", req.username)
-    model_path = os.path.join(PROJECT_ROOT, "output", req.username, "checkpoint-final")
+    model_path = _resolve_user_model_path(req.username)
     
-    if not os.path.exists(model_path):
+    if not model_path:
         raise HTTPException(status_code=400, detail="未找到您的专属模型，请先完成微调训练！")
 
     GPU_STATE["status"] = GPUStatus.EVALUATING
