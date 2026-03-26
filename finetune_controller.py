@@ -9,6 +9,14 @@ from shared_state import GPUStatus, GPU_STATE
 
 router = APIRouter()
 
+
+def _is_user_training(username: str) -> bool:
+    """兼容新的 GPU_STATE 结构：通过 status + current_user 判断训练状态。"""
+    return (
+        GPU_STATE.get("status") == GPUStatus.TRAINING
+        and GPU_STATE.get("current_user") == username
+    )
+
 class FinetuneRequest(BaseModel):
     username: str
     learning_rate: float = Field(default=2e-4, description="学习率")
@@ -115,7 +123,7 @@ async def log_generator(username: str):
     wait_time = 0
     while not os.path.exists(log_path):
         # 如果等待期间训练已经意外终止，直接退出
-        if not GPU_STATE["is_training"] or GPU_STATE["current_user"] != username:
+        if not _is_user_training(username):
             yield f"data: {{\"status\": \"error\", \"message\": \"训练未启动或提前异常终止\"}}\n\n"
             return
             
@@ -133,7 +141,7 @@ async def log_generator(username: str):
             if not line:
                 # 读到了文件末尾（EOF）
                 # 检查当前用户的训练任务是否还在继续
-                if not GPU_STATE["is_training"] or GPU_STATE["current_user"] != username:
+                if not _is_user_training(username):
                     # 训练已经结束，发送完成信号跳出循环
                     yield f"data: {{\"status\": \"finished\", \"message\": \"训练已完成\"}}\n\n"
                     break
