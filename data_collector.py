@@ -4,6 +4,7 @@ import sqlite3
 import shutil
 import aiofiles
 import subprocess
+import time
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -28,9 +29,14 @@ def init_db():
             username TEXT NOT NULL,
             text_content TEXT NOT NULL,
             audio_path TEXT,
-            is_completed BOOLEAN DEFAULT 0
+            is_completed BOOLEAN DEFAULT 0,
+            updated_at INTEGER
         )
     ''')
+    c.execute("PRAGMA table_info(tasks)")
+    task_columns = {row[1] for row in c.fetchall()}
+    if "updated_at" not in task_columns:
+        c.execute('ALTER TABLE tasks ADD COLUMN updated_at INTEGER')
     # 新增：users 表，用于记录已注册的代号
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -147,6 +153,13 @@ async def get_tasks(username: str):
     c.execute('SELECT * FROM tasks WHERE username = ?', (username,))
     tasks = [dict(row) for row in c.fetchall()]
     conn.close()
+
+    for task in tasks:
+        audio_path = task.get("audio_path")
+        updated_at = task.get("updated_at")
+        if audio_path and updated_at:
+            task["audio_path"] = f"{audio_path}?v={updated_at}"
+
     return tasks
 
 
@@ -274,12 +287,13 @@ async def upload_audio(task_id: int, username: str, audio: UploadFile = File(...
     # 更新数据库状态
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    updated_at = int(time.time() * 1000)
     db_audio_path = f"/uploads/{username}/{final_wav_name}"
     c.execute('''
         UPDATE tasks 
-        SET audio_path = ?, is_completed = 1 
+        SET audio_path = ?, is_completed = 1, updated_at = ?
         WHERE id = ? AND username = ?
-    ''', (db_audio_path, task_id, username))
+    ''', (db_audio_path, updated_at, task_id, username))
     conn.commit()
     conn.close()
     
