@@ -53,6 +53,26 @@ export default {
             await Promise.all([checkDatasetStatus(), checkModelStatus()]);
         };
 
+        // 检查训练占用状态（解决页面刷新后 isTraining 丢失的问题）
+        const checkTrainingStatus = async () => {
+            if (!props.currentUser) return;
+            try {
+                const res = await fetch('/api/gpu_status', { cache: 'no-store' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+
+                const userIsTraining = data.status === 'TRAINING' && data.current_user === props.currentUser;
+                isTraining.value = userIsTraining;
+
+                // 刷新后若该用户训练仍在进行，自动重连 SSE
+                if (userIsTraining && !eventSource) {
+                    await startSSE();
+                }
+            } catch (e) {
+                console.error("检查训练状态失败", e);
+            }
+        };
+
 
         // 发起评估请求
         const handleEvaluate = async () => {
@@ -242,6 +262,7 @@ export default {
                 if (data.status === 'finished') {
                     isTraining.value = false;
                     eventSource.close();
+                    eventSource = null;
                     alert("🎉 恭喜！模型专属微调已成功完成！");
                     
                     checkModelStatus();
@@ -250,6 +271,7 @@ export default {
                 if (data.status === 'error') {
                     isTraining.value = false;
                     eventSource.close();
+                    eventSource = null;
                     alert("⚠️ 训练中断或发生错误: " + data.message);
                     return;
                 }
@@ -358,6 +380,7 @@ export default {
             window.addEventListener('resize', handleResize);
             checkDatasetStatus();
             checkModelStatus();
+            checkTrainingStatus();
         });
 
         onActivated(() => {
@@ -366,6 +389,7 @@ export default {
             });
             checkDatasetStatus();
             checkModelStatus();
+            checkTrainingStatus();
         });
 
         watch(
@@ -374,10 +398,16 @@ export default {
                 if (!newUser) {
                     hasDataset.value = false;
                     hasModel.value = false;
+                    isTraining.value = false;
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
                     return;
                 }
                 checkDatasetStatus();
                 checkModelStatus();
+                checkTrainingStatus();
             }
         );
 
