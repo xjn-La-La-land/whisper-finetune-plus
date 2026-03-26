@@ -1,4 +1,4 @@
-const { ref, onMounted, onUnmounted, onActivated, nextTick } = Vue;
+const { ref, onMounted, onUnmounted, onActivated, nextTick, watch } = Vue;
 
 export default {
     template: '#tpl-finetune-panel',
@@ -27,6 +27,18 @@ export default {
                 hasModel.value = data.has_model;
             } catch (e) {
                 console.error("检查模型状态失败", e);
+            }
+        };
+
+        // 检查数据集状态（页面刷新后恢复步骤解锁状态）
+        const checkDatasetStatus = async () => {
+            if (!props.currentUser) return;
+            try {
+                const res = await fetch(`/api/check_dataset?username=${encodeURIComponent(props.currentUser)}`);
+                const data = await res.json();
+                hasDataset.value = Boolean(data.has_dataset);
+            } catch (e) {
+                console.error("检查数据集状态失败", e);
             }
         };
 
@@ -332,6 +344,7 @@ export default {
                 ensureChartReady();
             });
             window.addEventListener('resize', handleResize);
+            checkDatasetStatus();
             checkModelStatus();
         });
 
@@ -339,7 +352,22 @@ export default {
             ensureChartReady().then(() => {
                 if (myChart) myChart.resize();
             });
+            checkDatasetStatus();
+            checkModelStatus();
         });
+
+        watch(
+            () => props.currentUser,
+            (newUser) => {
+                if (!newUser) {
+                    hasDataset.value = false;
+                    hasModel.value = false;
+                    return;
+                }
+                checkDatasetStatus();
+                checkModelStatus();
+            }
+        );
 
         onUnmounted(() => {
             if (eventSource) eventSource.close();

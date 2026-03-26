@@ -17,6 +17,26 @@ BASE_MODEL_PATH = "/home/featurize/whisper-large-v3"
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_BATCH_SIZE = 16
+
+
+def resolve_user_model_path(username: str):
+    """兼容不同目录结构，查找用户的 checkpoint-final 目录。"""
+    user_output_dir = os.path.join(PROJECT_ROOT, "output", username)
+
+    direct_path = os.path.join(user_output_dir, "checkpoint-final")
+    if os.path.exists(direct_path):
+        return direct_path
+
+    if not os.path.isdir(user_output_dir):
+        return None
+
+    for entry in os.listdir(user_output_dir):
+        candidate = os.path.join(user_output_dir, entry, "checkpoint-final")
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def load_model_to_gpu(model_path: str):
     """清理显存并加载新模型"""
     print(f"正在从显存卸载旧模型，准备加载: {model_path}")
@@ -77,9 +97,9 @@ async def api_recognition(
         raise HTTPException(status_code=423, detail="GPU 正在进行训练或评估任务，请稍后再试！")
     
     # 2. 确定目标模型路径 (优先找该用户的微调模型，找不到用Base)
-    user_model_dir = os.path.join(PROJECT_ROOT, "output", username, "checkpoint-final")
+    user_model_dir = resolve_user_model_path(username)
     if model_type == "finetuned":
-        if not os.path.exists(user_model_dir):
+        if not user_model_dir:
             raise HTTPException(status_code=400, detail="未找到微调模型，请先进行微调")
         target_model_path = user_model_dir
     else:
@@ -113,7 +133,7 @@ async def api_recognition(
                 text = remove_punctuation(text)
             results.append({"text": text, "start": chunk['timestamp'][0], "end": chunk['timestamp'][1]})
             
-        return {"code": 0, "results": results, "used_model": "Finetuned" if target_model_path == user_model_dir else "Base"}
+        return {"code": 0, "results": results, "used_model": "Finetuned" if user_model_dir and target_model_path == user_model_dir else "Base"}
     finally:
         # 推理结束，状态保持 INFERENCING，不卸载模型，以便下次秒级响应
         pass
