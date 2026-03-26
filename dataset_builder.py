@@ -11,15 +11,29 @@ from pydantic import BaseModel, Field
 # 实例化 Router
 router = APIRouter()
 
-# 配置目录
-DATA_DIR = "data"
+# 配置目录（使用绝对路径，避免服务从不同 cwd 启动时状态判断错误）
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 DB_PATH = os.path.join(DATA_DIR, "tasks.db")
-DATASET_DIR = "dataset"
+DATASET_DIR = os.path.join(PROJECT_ROOT, "dataset")
 
 # 定义前端传入的数据模型
 class DatasetBuildRequest(BaseModel):
     username: str
     test_ratio: float = Field(default=0.05, ge=0.0, le=0.5, description="测试集比例")
+
+
+@router.get("/api/check_dataset")
+async def check_dataset(username: str):
+    """检查用户是否已经生成 train/test 数据集文件，供前端刷新后恢复步骤状态。"""
+    username = username.strip()
+    user_data_dir = os.path.join(DATASET_DIR, username)
+    train_path = os.path.join(user_data_dir, "train.json")
+    test_path = os.path.join(user_data_dir, "test.json")
+
+    has_train = os.path.exists(train_path)
+    has_test = os.path.exists(test_path)
+    return {"has_dataset": has_train and has_test}
 
 @router.post("/api/build_dataset")
 async def build_dataset(request: DatasetBuildRequest):
