@@ -86,13 +86,10 @@ class CustomDataset(Dataset):
                                                 max_duration=self.max_duration)
             self.data_list = self.dataset_reader.get_keys()
         else:
-            # 获取数据列表
-            with open(self.data_list_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            # 获取数据列表（同时兼容 JSONL 与 JSON 数组两种格式）
+            records = self._read_records_from_path(self.data_list_path)
             self.data_list = []
-            for line in tqdm(lines, desc='读取数据列表'):
-                if isinstance(line, str):
-                    line = json.loads(line)
+            for line in tqdm(records, desc='读取数据列表'):
                 if not isinstance(line, dict): continue
                 # 跳过超出长度限制的音频
                 if line["duration"] < self.min_duration:
@@ -110,6 +107,33 @@ class CustomDataset(Dataset):
                     if sentence_len < self.min_sentence or sentence_len > self.max_sentence:
                         continue
                 self.data_list.append(dict(line))
+
+    @staticmethod
+    def _read_records_from_path(data_list_path: str):
+        with open(data_list_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+
+        if not content:
+            return []
+
+        # 优先按标准 JSON 文档解析（支持 JSON 数组 / 单对象）
+        try:
+            payload = json.loads(content)
+            if isinstance(payload, list):
+                return payload
+            if isinstance(payload, dict):
+                return [payload]
+        except json.JSONDecodeError:
+            pass
+
+        # 回退到 JSONL 逐行解析（兼容历史数据格式）
+        records = []
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+        return records
 
     # 从数据列表里面获取音频数据、采样率和文本
     def _get_list_data(self, idx):
