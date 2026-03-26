@@ -1,4 +1,4 @@
-const { ref, onMounted, onUnmounted, nextTick } = Vue;
+const { ref, onMounted, onUnmounted, onActivated, nextTick } = Vue;
 
 export default {
     template: '#tpl-finetune-panel',
@@ -11,6 +11,7 @@ export default {
         
         const isTraining = ref(false);
         const hasChartData = ref(false); // 控制图表和占位符的切换
+        const chartError = ref("");
 
         // 评估模块状态
         const hasModel = ref(false);      // 是否已生成模型
@@ -62,6 +63,8 @@ export default {
         const chartRef = ref(null);
         let myChart = null;
         let eventSource = null;
+        let trainLossData = [];
+        let evalLossData = [];
 
         const datasetParams = ref({ test_ratio: 0.05 });
         const finetuneParams = ref({
@@ -89,19 +92,39 @@ export default {
 
         // --- ECharts 图表初始化 ---
         const initChart = () => {
-            if (chartRef.value && !myChart) {
-                // 初始化 ECharts 实例
-                myChart = echarts.init(chartRef.value);
+            if (!chartRef.value) return false;
+            if (typeof echarts === 'undefined') {
+                chartError.value = "图表库加载失败，请检查网络后刷新页面";
+                return false;
+            }
+
+            try {
+                if (myChart && (!myChart.isDisposed()) && myChart.getDom() !== chartRef.value) {
+                    myChart.dispose();
+                    myChart = null;
+                }
+
+                if (!myChart) {
+                    // 初始化 ECharts 实例
+                    myChart = echarts.init(chartRef.value);
+                }
+                chartError.value = "";
                 
                 // 配置酷炫的蓝绿色渐变折线图
                 const option = {
+                    legend: {
+                        top: 10,
+                        right: 16,
+                        textStyle: { color: '#6B7280', fontWeight: 'bold' },
+                        data: ['训练集 Loss', '验证集 Eval Loss']
+                    },
                     tooltip: { 
                         trigger: 'axis',
                         backgroundColor: 'rgba(255, 255, 255, 0.9)',
                         borderColor: '#E5E7EB',
                         textStyle: { color: '#374151', fontWeight: 'bold' }
                     },
-                    grid: { left: '8%', right: '5%', bottom: '15%', top: '10%' },
+                    grid: { left: '8%', right: '5%', bottom: '15%', top: '18%' },
                     xAxis: { 
                         type: 'value', 
                         name: '步数 (Step)', 
@@ -118,6 +141,7 @@ export default {
                         splitLine: { lineStyle: { type: 'dashed', color: '#E5E7EB' } }
                     },
                     series: [{
+                        name: '训练集 Loss',
                         data: [],
                         type: 'line',
                         smooth: true, // 开启曲线平滑
@@ -131,26 +155,64 @@ export default {
                                 { offset: 1, color: 'rgba(59, 130, 246, 0.0)' }
                             ])
                         }
+                    },
+                    {
+                        name: '验证集 Eval Loss',
+                        data: [],
+                        type: 'line',
+                        smooth: true,
+                        symbol: 'diamond',
+                        symbolSize: 7,
+                        itemStyle: { color: '#10B981' },
+                        lineStyle: { width: 3, color: '#10B981', type: 'dashed' },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(16, 185, 129, 0.25)' },
+                                { offset: 1, color: 'rgba(16, 185, 129, 0.0)' }
+                            ])
+                        }
                     }]
                 };
                 myChart.setOption(option);
+                return true;
+            } catch (err) {
+                chartError.value = "图表初始化失败，请刷新页面重试";
+                console.error("初始化图表失败", err);
+                return false;
             }
         };
 
+        const ensureChartReady = async () => {
+            await nextTick();
+            if (initChart()) return true;
+
+            await new Promise(resolve => setTimeout(resolve, 120));
+            return initChart();
+        };
+
         // --- 监听 SSE 流数据 ---
-        const startSSE = () => {
+        const startSSE = async () => {
             // 如果之前有连接，先关掉
             if (eventSource) eventSource.close();
             
             // 清空图表数据，准备接收新一轮训练数据
-            if (myChart) myChart.setOption({ series: [{ data: [] }] });
+            await ensureChartReady();
+            trainLossData = [];
+            evalLossData = [];
+            if (myChart) myChart.setOption({ series: [{ data: [] }, { data: [] }] });
             hasChartData.value = true;
 
             // 建立长连接
             eventSource = new EventSource(`/api/train_stream?username=${encodeURIComponent(props.currentUser)}`);
 
             eventSource.onmessage = (event) => {
-                const data = JSON.parse(event.data);
+                let data = null;
+                try {
+                    data = JSON.parse(event.data);
+                } catch (err) {
+                    console.warn("收到无法解析的训练日志，已跳过：", event.data);
+                    return;
+                }
                 
                 // 判断是否是控制信号
                 if (data.status === 'finished') {
@@ -170,16 +232,18 @@ export default {
 
                 // 如果是常规的 log 数据 (包含了 step 和 loss)
                 if (data.loss !== undefined && data.step !== undefined) {
-                    // 获取当前图表的数据数组
-                    const currentOption = myChart.getOption();
-                    const currentData = currentOption.series[0].data;
-                    
-                    // 追加新的坐标点 [x, y]
-                    currentData.push([data.step, data.loss]);
-                    
-                    // 增量更新图表
+                    if (!myChart) return;
+                    trainLossData.push([data.step, data.loss]);
                     myChart.setOption({
-                        series: [{ data: currentData }]
+                        series: [{ data: trainLossData }, { data: evalLossData }]
+                    });
+                }
+
+                if (data.eval_loss !== undefined && data.step !== undefined) {
+                    if (!myChart) return;
+                    evalLossData.push([data.step, data.eval_loss]);
+                    myChart.setOption({
+                        series: [{ data: trainLossData }, { data: evalLossData }]
                     });
                 }
             };
@@ -234,7 +298,7 @@ export default {
                         username: props.currentUser,
                         learning_rate: finetuneParams.value.learning_rate,
                         epochs: finetuneParams.value.epochs,
-                        gradient_accumulation_steps: finetuneParams.value.accumulation_steps,
+                        accumulation_steps: finetuneParams.value.gradient_accumulation_steps,
                         batch_size: finetuneParams.value.batch_size,
                         use_adalora: finetuneParams.value.use_adalora,
                         use_8bit: finetuneParams.value.use_8bit,
@@ -246,7 +310,7 @@ export default {
 
                 if (res.ok) {
                     // API 返回成功代表后台进程已成功拉起，开始连 SSE 监听图表数据！
-                    startSSE();
+                    await startSSE();
                 } else {
                     const errorData = await res.json();
                     alert(`启动失败: ${errorData.detail}`);
@@ -265,10 +329,16 @@ export default {
         onMounted(() => {
             // 使用 nextTick 确保 DOM 已经渲染完毕再挂载图表
             nextTick(() => {
-                initChart();
+                ensureChartReady();
             });
             window.addEventListener('resize', handleResize);
             checkModelStatus();
+        });
+
+        onActivated(() => {
+            ensureChartReady().then(() => {
+                if (myChart) myChart.resize();
+            });
         });
 
         onUnmounted(() => {
@@ -286,6 +356,7 @@ export default {
             buildResult,
             isTraining,
             hasChartData,
+            chartError,
             handleBuildDataset,
             handleStartFinetune,
             enforceMinLen,

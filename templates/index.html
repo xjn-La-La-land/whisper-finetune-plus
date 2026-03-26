@@ -380,9 +380,19 @@
                 <div class="relative h-80 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 overflow-hidden">
                     <div ref="chartRef" class="w-full h-full absolute inset-0 z-10 transition-opacity duration-500" :class="{ 'opacity-0': !hasChartData, 'opacity-100': hasChartData }"></div>
 
-                    <div v-if="!hasChartData" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 z-0">
+                    <div v-if="chartError" class="absolute inset-0 flex flex-col items-center justify-center text-red-400 z-20 bg-white/80 backdrop-blur-sm">
+                        <span class="text-3xl mb-2">⚠️</span>
+                        <p class="font-bold text-sm">{{ chartError }}</p>
+                        <p class="text-xs text-gray-500 mt-2">可先继续训练，刷新后会自动重连并重新绘制。</p>
+                    </div>
+
+                    <div v-else-if="!hasChartData" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 z-0">
                         <span class="text-3xl mb-2">📈</span>
-                        <p class="font-bold text-sm">学习效果曲线 (Loss) 将在这里实时呈现</p>
+                        <p class="font-bold text-sm">训练集 Loss + 验证集 Eval Loss 将在这里实时呈现</p>
+                        <div class="mt-3 flex items-center gap-4 text-xs font-bold">
+                            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-blue-500"></span>训练集 Loss</span>
+                            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500"></span>验证集 Eval Loss</span>
+                        </div>
                     </div>
                 </div>
             </div>
