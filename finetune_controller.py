@@ -25,18 +25,18 @@ def _is_user_training(username: str) -> bool:
     )
 
 
-def _upsert_user_model(username: str, model_name: str, model_path: str):
+def _upsert_user_model(username: str, model_name: str):
     now_ts = int(time.time())
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
         '''
-        INSERT INTO models (username, model_name, model_path, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO models (username, model_name, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(username, model_name)
-        DO UPDATE SET model_path = excluded.model_path, updated_at = excluded.updated_at
+        DO UPDATE SET updated_at = excluded.updated_at
         ''',
-        (username, model_name, model_path, now_ts, now_ts)
+        (username, model_name, now_ts, now_ts)
     )
     conn.commit()
     conn.close()
@@ -84,7 +84,7 @@ async def run_finetune_process(req: FinetuneRequest):
     这是一个后台任务，负责实际拉起 finetune.py 进程并等待它结束。
     """
     dataset_dir = os.path.join(PROJECT_ROOT, "dataset", req.username)
-    output_dir = os.path.join(PROJECT_ROOT, "output", req.model_name)
+    output_dir = os.path.join(PROJECT_ROOT, "output", req.username, req.model_name)
     web_log_path = os.path.join(dataset_dir, "training_log.jsonl")
     base_model_path = os.path.join(BASE_MODELS_DIR, req.base_model)
 
@@ -129,11 +129,10 @@ async def run_finetune_process(req: FinetuneRequest):
         
         if process.returncode == 0:
             print(f"[{req.username}] 微调成功！")
-            final_checkpoint = os.path.join(output_dir, "checkpoint-final")
-            if os.path.exists(final_checkpoint):
-                _upsert_user_model(req.username, req.model_name, final_checkpoint)
+            if os.path.exists(output_dir):
+                _upsert_user_model(req.username, req.model_name)
             else:
-                print(f"[{req.username}] 警告：未找到 checkpoint-final，无法写入模型记录")
+                print(f"[{req.username}] 警告：未找到模型输出目录，无法写入模型记录")
         else:
             print(f"[{req.username}] 报错：{stderr.decode()}")
     except Exception as e:

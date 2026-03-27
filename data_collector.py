@@ -43,28 +43,17 @@ def init_db():
             username TEXT PRIMARY KEY
         )
     ''')
-    # 用户微调模型表：记录模型名称与 checkpoint 路径
+    # 用户微调模型表：仅记录用户名与模型名，路径统一约定为 output/{username}/{model_name}
     c.execute('''
         CREATE TABLE IF NOT EXISTS models (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
             model_name TEXT NOT NULL,
-            model_path TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
             UNIQUE(username, model_name)
         )
     ''')
-    c.execute("PRAGMA table_info(models)")
-    model_columns = {row[1] for row in c.fetchall()}
-    if "created_at" not in model_columns:
-        c.execute('ALTER TABLE models ADD COLUMN created_at INTEGER')
-        now_ts = int(time.time())
-        c.execute('UPDATE models SET created_at = ? WHERE created_at IS NULL', (now_ts,))
-    if "updated_at" not in model_columns:
-        c.execute('ALTER TABLE models ADD COLUMN updated_at INTEGER')
-        now_ts = int(time.time())
-        c.execute('UPDATE models SET updated_at = ? WHERE updated_at IS NULL', (now_ts,))
     conn.commit()
     conn.close()
 

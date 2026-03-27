@@ -53,7 +53,7 @@ def resolve_user_model_path(username: str):
     c = conn.cursor()
     c.execute(
         '''
-        SELECT model_name, model_path
+        SELECT model_name
         FROM models
         WHERE username = ?
         ORDER BY updated_at DESC, id DESC
@@ -65,8 +65,12 @@ def resolve_user_model_path(username: str):
 
     valid_models = []
     for row in rows:
-        if os.path.exists(row["model_path"]):
-            valid_models.append(row)
+        model_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"])
+        if os.path.exists(model_path):
+            valid_models.append({
+                "model_name": row["model_name"],
+                "model_path": model_path
+            })
     return valid_models
 
 
