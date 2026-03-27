@@ -65,7 +65,6 @@ async def run_finetune_process(req: FinetuneRequest):
     web_log_path = os.path.join(dataset_dir, "training_log.jsonl")
 
     # 先在后端侧主动清空旧日志，避免 SSE 先读到旧文件后被训练进程 truncate 导致读指针卡在 EOF
-    os.makedirs(dataset_dir, exist_ok=True)
     with open(web_log_path, "w", encoding="utf-8"):
         pass
 
@@ -216,6 +215,36 @@ async def train_stream(username: str):
             "X-Accel-Buffering": "no"
         }
     )
+
+
+@router.get("/api/train_history")
+async def get_train_history(username: str):
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    log_path = os.path.join(PROJECT_ROOT, "dataset", username, "training_log.jsonl")
+
+    if not os.path.exists(log_path):
+        return {"train_loss": [], "eval_loss": []}
+
+    train_loss = []
+    eval_loss = []
+
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                data = json.loads(line.strip())
+            except Exception:
+                continue
+
+            if data.get("step") is not None and data.get("loss") is not None:
+                train_loss.append([data["step"], data["loss"]])
+
+            if data.get("step") is not None and data.get("eval_loss") is not None:
+                eval_loss.append([data["step"], data["eval_loss"]])
+
+    return {
+        "train_loss": train_loss,
+        "eval_loss": eval_loss
+    }
 
 
 # 模型检查与评估模块

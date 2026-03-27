@@ -66,7 +66,7 @@ export default {
 
                 // 刷新后若该用户训练仍在进行，自动重连 SSE
                 if (userIsTraining && !eventSource) {
-                    await startSSE();
+                    await startSSE({ resetChart: false });
                 }
             } catch (e) {
                 console.error("检查训练状态失败", e);
@@ -234,19 +234,68 @@ export default {
             return initChart();
         };
 
-        // --- 监听 SSE 流数据 ---
-        const startSSE = async () => {
-            // 如果之前有连接，先关掉
-            if (eventSource) eventSource.close();
-            
-            // 清空图表数据，准备接收新一轮训练数据
-            await ensureChartReady();
-            trainLossData = [];
-            evalLossData = [];
-            if (myChart) myChart.setOption({ series: [{ data: [] }, { data: [] }] });
-            hasChartData.value = true;
 
-            // 建立长连接
+        const loadChartHistory = async () => {
+            if (!props.currentUser) return;
+
+            const ready = await ensureChartReady();
+            if (!ready || !myChart) {
+                chartError.value = "图表初始化失败，无法恢复历史曲线";
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/train_history?username=${encodeURIComponent(props.currentUser)}`, {
+                    cache: 'no-store'
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const data = await res.json();
+
+                trainLossData = Array.isArray(data.train_loss) ? data.train_loss : [];
+                evalLossData = Array.isArray(data.eval_loss) ? data.eval_loss : [];
+
+                myChart.setOption({
+                    series: [
+                        { data: trainLossData },
+                        { data: evalLossData }
+                    ]
+                });
+                myChart.resize();
+
+                hasChartData.value = trainLossData.length > 0 || evalLossData.length > 0;
+                chartError.value = "";
+            } catch (e) {
+                console.error("加载历史训练曲线失败", e);
+            }
+        };
+
+
+
+        // --- 监听 SSE 流数据 ---
+        const startSSE = async ({ resetChart = true } = {}) => {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+
+            const ready = await ensureChartReady();
+            if (!ready || !myChart) {
+                chartError.value = "图表初始化失败，无法开始实时绘图";
+                console.error("[SSE] chart is not ready, abort startSSE");
+                return;
+            }
+
+            myChart.resize();
+
+            if (resetChart) {
+                trainLossData = [];
+                evalLossData = [];
+                myChart.setOption({ series: [{ data: [] }, { data: [] }] });
+            }
+
+            hasChartData.value = trainLossData.length > 0 || evalLossData.length > 0;
+
             eventSource = new EventSource(`/api/train_stream?username=${encodeURIComponent(props.currentUser)}`);
 
             eventSource.onmessage = (event) => {
@@ -254,20 +303,19 @@ export default {
                 try {
                     data = JSON.parse(event.data);
                 } catch (err) {
-                    console.warn("收到无法解析的训练日志，已跳过：", event.data);
+                    console.warn("[SSE] JSON parse failed:", event.data);
                     return;
                 }
-                
-                // 判断是否是控制信号
+
                 if (data.status === 'finished') {
                     isTraining.value = false;
                     eventSource.close();
                     eventSource = null;
                     alert("🎉 恭喜！模型专属微调已成功完成！");
-                    
                     checkModelStatus();
                     return;
                 }
+
                 if (data.status === 'error') {
                     isTraining.value = false;
                     eventSource.close();
@@ -276,27 +324,27 @@ export default {
                     return;
                 }
 
-                // 如果是常规的 log 数据 (包含了 step 和 loss)
                 if (data.loss !== undefined && data.step !== undefined) {
-                    if (!myChart) return;
                     trainLossData.push([data.step, data.loss]);
-                    myChart.setOption({
-                        series: [{ data: trainLossData }, { data: evalLossData }]
-                    });
+                    hasChartData.value = true;
+                    if (myChart) {
+                        myChart.setOption({ series: [{ data: trainLossData }, { data: evalLossData }] });
+                        myChart.resize();
+                    }
                 }
 
                 if (data.eval_loss !== undefined && data.step !== undefined) {
-                    if (!myChart) return;
                     evalLossData.push([data.step, data.eval_loss]);
-                    myChart.setOption({
-                        series: [{ data: trainLossData }, { data: evalLossData }]
-                    });
+                    hasChartData.value = true;
+                    if (myChart) {
+                        myChart.setOption({ series: [{ data: trainLossData }, { data: evalLossData }] });
+                        myChart.resize();
+                    }
                 }
             };
 
             eventSource.onerror = (err) => {
-                console.error("SSE 连接异常，可能是网络波动或后端重启", err);
-                // 这里不需要主动 close()，浏览器自带断线重连机制
+                console.error("[SSE] error =", err);
             };
         };
 
@@ -356,7 +404,7 @@ export default {
 
                 if (res.ok) {
                     // API 返回成功代表后台进程已成功拉起，开始连 SSE 监听图表数据！
-                    await startSSE();
+                    await startSSE({ resetChart: true });
                 } else {
                     const errorData = await res.json();
                     alert(`启动失败: ${errorData.detail}`);
@@ -372,42 +420,51 @@ export default {
         const handleResize = () => { if (myChart) myChart.resize(); };
 
         // 生命周期管理
-        onMounted(() => {
-            // 使用 nextTick 确保 DOM 已经渲染完毕再挂载图表
-            nextTick(() => {
-                ensureChartReady();
-            });
+        onMounted(async () => {
+            await ensureChartReady();
+            if (myChart) myChart.resize();
+
             window.addEventListener('resize', handleResize);
-            checkDatasetStatus();
-            checkModelStatus();
-            checkTrainingStatus();
+
+            await refreshStepStatus();
+            await loadChartHistory();
+            await checkTrainingStatus();
         });
 
-        onActivated(() => {
-            ensureChartReady().then(() => {
-                if (myChart) myChart.resize();
-            });
-            checkDatasetStatus();
-            checkModelStatus();
-            checkTrainingStatus();
+        onActivated(async () => {
+            await ensureChartReady();
+            if (myChart) myChart.resize();
+
+            await refreshStepStatus();
+            await loadChartHistory();
+            await checkTrainingStatus();
         });
 
         watch(
             () => props.currentUser,
-            (newUser) => {
+            async (newUser) => {
                 if (!newUser) {
                     hasDataset.value = false;
                     hasModel.value = false;
                     isTraining.value = false;
+                    hasChartData.value = false;
+                    trainLossData = [];
+                    evalLossData = [];
+
+                    if (myChart) {
+                        myChart.setOption({ series: [{ data: [] }, { data: [] }] });
+                    }
+
                     if (eventSource) {
                         eventSource.close();
                         eventSource = null;
                     }
                     return;
                 }
-                checkDatasetStatus();
-                checkModelStatus();
-                checkTrainingStatus();
+
+                await refreshStepStatus();
+                await loadChartHistory();
+                await checkTrainingStatus();
             }
         );
 
