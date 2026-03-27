@@ -9,10 +9,10 @@ export default {
             to_simple: true,
             remove_pun: false,
             num_beams: 1,
-            selected_model: 'base' // 默认选择基础模型
+            selected_model: 'BASE_MODEL' // 默认选择基础模型
         });
 
-        const hasModel = ref(false); // 标记用户是否有微调模型
+        const modelOptions = ref([]); // 用户模型列表
 
         // --- 录音与 UI 状态 ---
         const isRecording = ref(false);
@@ -55,9 +55,17 @@ export default {
         const checkModelStatus = async () => {
             if (!props.currentUser) return;
             try {
-                const res = await fetch(`/api/check_model?username=${encodeURIComponent(props.currentUser)}`);
+                const res = await fetch(`/api/user_models?username=${encodeURIComponent(props.currentUser)}`);
                 const data = await res.json();
-                hasModel.value = data.has_model;
+                modelOptions.value = Array.isArray(data.models) ? data.models : [];
+                if (!modelOptions.value.length) {
+                    params.value.selected_model = 'BASE_MODEL';
+                } else if (
+                    params.value.selected_model !== 'BASE_MODEL' &&
+                    !modelOptions.value.some(m => m.model_name === params.value.selected_model)
+                ) {
+                    params.value.selected_model = 'BASE_MODEL';
+                }
             } catch (e) {
                 console.error("检查模型状态失败", e);
             }
@@ -79,7 +87,7 @@ export default {
             formData.append("to_simple", params.value.to_simple ? 1 : 0);
             formData.append("remove_pun", params.value.remove_pun ? 1 : 0);
             formData.append("num_beams", params.value.num_beams);
-            formData.append("model_type", params.value.selected_model);
+            formData.append("model_name", params.value.selected_model);
 
             try {
                 const res = await fetch('/api/recognition', { method: 'POST', body: formData });
@@ -90,7 +98,7 @@ export default {
                 }
                 const data = await res.json();
                 
-                usedModelType.value = data.used_model === "Finetuned" ? "专属微调模型" : "基础模型";
+                usedModelType.value = data.used_model === "BASE_MODEL" ? "基础模型" : `专属模型：${data.used_model}`;
                 await typeWriterEffect(`> ✅ 模型加载就绪 [${usedModelType.value}]，开始解码...`, "system");
 
                 // 逐句输出，这里必须用 await 确保打完一句再打下一句
@@ -147,7 +155,7 @@ export default {
         };
 
         return { 
-            params, hasModel, isRecording, isProcessing, audioInput, 
+            params, modelOptions, isRecording, isProcessing, audioInput, 
             terminalLines, usedModelType, tempAudioPath,
             handleFileUpload, toggleRecording 
         };

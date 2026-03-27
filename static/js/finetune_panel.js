@@ -62,6 +62,7 @@ export default {
 
         const datasetParams = ref({ test_ratio: 0.05 });
         const finetuneParams = ref({
+            model_name: "",
             learning_rate: 0.0002,
             epochs: 20,
             batch_size: 8,
@@ -330,6 +331,10 @@ export default {
         // --- 动作：启动微调 ---
         const handleStartFinetune = async () => {
             if (!props.currentUser || !hasDataset.value) return;
+            if (!finetuneParams.value.model_name.trim()) {
+                alert("请先输入模型名称");
+                return;
+            }
             
             isTraining.value = true;
 
@@ -339,6 +344,7 @@ export default {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         username: props.currentUser,
+                        model_name: finetuneParams.value.model_name.trim(),
                         learning_rate: finetuneParams.value.learning_rate,
                         epochs: finetuneParams.value.epochs,
                         accumulation_steps: finetuneParams.value.gradient_accumulation_steps,
@@ -407,6 +413,7 @@ export default {
                         eventSource.close();
                         eventSource = null;
                     }
+                    finetuneParams.value.model_name = "";
                     return;
                 }
 

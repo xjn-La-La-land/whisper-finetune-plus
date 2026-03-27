@@ -1,11 +1,11 @@
 # inference_controller.py
 import os
 import gc
+import sqlite3
 import torch
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from zhconv import convert
-from pydantic import BaseModel
 from utils.data_utils import remove_punctuation
 
 from shared_state import GPUStatus, GPU_STATE, INFERENCE_CACHE
@@ -15,26 +15,38 @@ router = APIRouter()
 # 基础模型路径
 BASE_MODEL_PATH = "/home/featurize/whisper-large-v3"
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
 
 DEFAULT_BATCH_SIZE = 16
 
 
 def resolve_user_model_path(username: str):
-    """兼容不同目录结构，查找用户的 checkpoint-final 目录。"""
-    user_output_dir = os.path.join(PROJECT_ROOT, "output", username)
+    """从数据库查询用户所有可用微调模型。"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute(
+        '''
+        SELECT model_name, model_path
+        FROM models
+        WHERE username = ?
+        ORDER BY updated_at DESC, id DESC
+        ''',
+        (username,)
+    )
+    rows = [dict(row) for row in c.fetchall()]
+    conn.close()
 
-    direct_path = os.path.join(user_output_dir, "checkpoint-final")
-    if os.path.exists(direct_path):
-        return direct_path
+    valid_models = []
+    for row in rows:
+        if os.path.exists(row["model_path"]):
+            valid_models.append(row)
+    return valid_models
 
-    if not os.path.isdir(user_output_dir):
-        return None
 
-    for entry in os.listdir(user_output_dir):
-        candidate = os.path.join(user_output_dir, entry, "checkpoint-final")
-        if os.path.exists(candidate):
-            return candidate
-    return None
+@router.get("/api/user_models")
+async def get_user_models(username: str):
+    return {"models": resolve_user_model_path(username)}
 
 
 def load_model_to_gpu(model_path: str):
@@ -89,7 +101,7 @@ async def api_recognition(
     to_simple: int = Form(1),
     remove_pun: int = Form(0),
     num_beams: int = Form(1),
-    model_type: str = Form("base"), # 接收模型选择 ("base" 或 "finetuned")
+    model_name: str = Form("BASE_MODEL"),
     audio: UploadFile = File(...)
 ):
     # 1. 检查 GPU 状态 (如果是训练，直接拒绝)
@@ -97,11 +109,13 @@ async def api_recognition(
         raise HTTPException(status_code=423, detail="GPU 正在进行训练任务，请稍后再试！")
     
     # 2. 确定目标模型路径 (优先找该用户的微调模型，找不到用Base)
-    user_model_dir = resolve_user_model_path(username)
-    if model_type == "finetuned":
-        if not user_model_dir:
-            raise HTTPException(status_code=400, detail="未找到微调模型，请先进行微调")
-        target_model_path = user_model_dir
+    user_models = resolve_user_model_path(username)
+    selected_model = None
+    if model_name != "BASE_MODEL":
+        selected_model = next((m for m in user_models if m["model_name"] == model_name), None)
+        if not selected_model:
+            raise HTTPException(status_code=400, detail="未找到指定微调模型，请先重新选择模型")
+        target_model_path = selected_model["model_path"]
     else:
         target_model_path = BASE_MODEL_PATH
     
@@ -133,7 +147,11 @@ async def api_recognition(
                 text = remove_punctuation(text)
             results.append({"text": text, "start": chunk['timestamp'][0], "end": chunk['timestamp'][1]})
             
-        return {"code": 0, "results": results, "used_model": "Finetuned" if user_model_dir and target_model_path == user_model_dir else "Base"}
+        return {
+            "code": 0,
+            "results": results,
+            "used_model": selected_model["model_name"] if selected_model else "BASE_MODEL"
+        }
     finally:
         # 推理结束，状态保持 INFERENCING，不卸载模型，以便下次秒级响应
         pass
