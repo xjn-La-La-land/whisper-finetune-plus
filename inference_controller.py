@@ -95,28 +95,27 @@ def load_model_to_gpu(model_path: str):
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-    lora_base_model_path = resolve_lora_base_model_path(model_path)
-    target_processor_path = lora_base_model_path or model_path
+    # model_path 既可能是基础模型路径，也可能是 LoRA 权重目录
+    lora_model_path = None
+    base_model_path = model_path
+    resolved_base_model_path = resolve_lora_base_model_path(model_path)
+    if resolved_base_model_path:
+        lora_model_path = model_path
+        base_model_path = resolved_base_model_path
 
-    processor = AutoProcessor.from_pretrained(target_processor_path)
-    if lora_base_model_path:
-        base_model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            lora_base_model_path,
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=True,
-            use_safetensors=True,
-            use_flash_attention_2=True  # 如果显卡不支持可改为False
-        )
-        model = PeftModel.from_pretrained(base_model, model_path)
+    processor = AutoProcessor.from_pretrained(base_model_path)
+    base_model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        base_model_path,
+        torch_dtype=torch_dtype,
+        low_cpu_mem_usage=True,
+        use_safetensors=True,
+        use_flash_attention_2=True  # 如果显卡不支持可改为False
+    )
+    if lora_model_path:
+        model = PeftModel.from_pretrained(base_model, lora_model_path)
         model = model.merge_and_unload()
     else:
-        model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            model_path,
-            torch_dtype=torch_dtype,
-            low_cpu_mem_usage=True,
-            use_safetensors=True,
-            use_flash_attention_2=True  # 如果显卡不支持可改为False
-        )
+        model = base_model
     model.to(device)
 
     infer_pipe = pipeline(
