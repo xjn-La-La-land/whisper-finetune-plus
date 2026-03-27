@@ -23,33 +23,51 @@ export default {
         let audioChunks = [];
 
         // --- 终端与回放状态 ---
-        const terminalLines = ref([]); // 存储终端显示的行
+        const transcriptItems = ref([]); // 识别文本历史
+        const historyContainer = ref(null);
+        const currentStatus = ref("等待输入音频...");
+        const statusType = ref("system");
+        const copiedItemId = ref(null);
         const usedModelType = ref(""); // 显示用的是Base还是微调模型
         const tempAudioPath = ref(""); // 用于回放刚刚录制的音频
-        
-        // 打字机效果
-        const typeWriterEffect = async (text, type = "normal") => {
-            // 1. 先创建一个空的行对象并推入数组
-            const lineObj = { text: "", type: type };
-            terminalLines.value.push(lineObj);
 
-            // 2. 逐字填充
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        // 顶部状态行打字机（每次覆盖上一条）
+        const typeStatus = async (text, type = "system") => {
+            statusType.value = type;
+            currentStatus.value = "";
             for (const char of text) {
-                lineObj.text += char; // Vue 会自动追踪这个对象属性的变化
-
-                // 3. 自动滚动逻辑
-                // 使用 nextTick 确保在 Vue 更新 DOM 后执行滚动
-                await nextTick();
-                const terminal = document.getElementById('terminal-container');
-                if (terminal) {
-                    terminal.scrollTop = terminal.scrollHeight;
-                }
-
-                // 4. 控制打字速度
-                // 识别出来的结果 (success 类型) 建议慢一点 (50ms)，系统提示快一点 (20ms)
-                const delay = type === 'success' ? 50 : 20;
-                await new Promise(resolve => setTimeout(resolve, delay));
+                currentStatus.value += char;
+                await sleep(type === "error" ? 14 : 10);
             }
+        };
+
+        // 识别文本打字机（写入历史列表）
+        const typeTranscript = async (chunk) => {
+            const item = {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                start: chunk.start,
+                end: chunk.end,
+                text: ""
+            };
+            transcriptItems.value.push(item);
+
+            for (const char of chunk.text) {
+                item.text += char;
+                await nextTick();
+                if (historyContainer.value) {
+                    historyContainer.value.scrollTop = historyContainer.value.scrollHeight;
+                }
+                await sleep(20);
+            }
+        };
+
+        const clearOutput = () => {
+            transcriptItems.value = [];
+            currentStatus.value = "等待输入音频...";
+            statusType.value = "system";
+            copiedItemId.value = null;
         };
 
         const ensureSelectedModel = () => {
@@ -102,13 +120,12 @@ export default {
                 return;
             }
             isProcessing.value = true;
-            // 每次开始前清空旧内容，让新的识别结果处于视觉重心
-            terminalLines.value = []; 
+            clearOutput();
             
             if (tempAudioPath.value) URL.revokeObjectURL(tempAudioPath.value);
             tempAudioPath.value = URL.createObjectURL(audioBlob);
 
-            await typeWriterEffect("> 🎵 音频已捕获，正在发送至 GPU 节点...", "system");
+            await typeStatus("🎵 音频已捕获，正在发送至 GPU 节点...", "system");
 
             const formData = new FormData();
             formData.append("audio", audioBlob, "infer.wav");
@@ -122,25 +139,23 @@ export default {
                 const res = await fetch('/api/recognition', { method: 'POST', body: formData });
                 if (!res.ok) {
                     const err = await res.json();
-                    await typeWriterEffect(`> ❌ 错误: ${err.detail}`, "error");
+                    await typeStatus(`❌ 错误: ${err.detail}`, "error");
                     return;
                 }
                 const data = await res.json();
                 
                 const usedType = data.used_model_type === "base" ? "base" : "finetuned";
                 usedModelType.value = `${data.used_model} (${usedType})`;
-                await typeWriterEffect(`> ✅ 模型加载就绪 [${usedModelType.value}]，开始解码...`, "system");
+                await typeStatus(`✅ 模型加载就绪 [${usedModelType.value}]，开始解码...`, "system");
 
-                // 逐句输出，这里必须用 await 确保打完一句再打下一句
                 for (const chunk of data.results) {
-                    const timeStr = `[${chunk.start.toFixed(1)}s - ${chunk.end.toFixed(1)}s] `;
-                    await typeWriterEffect(timeStr + chunk.text, "success");
+                    await typeTranscript(chunk);
                 }
 
-                await typeWriterEffect("> ✨ 识别完成！等待下一次指令...\n", "system");
+                await typeStatus("✨ 识别完成！等待下一次指令...", "system");
 
             } catch (err) {
-                await typeWriterEffect(`> ❌ 网络请求失败: ${err.message}`, "error");
+                await typeStatus(`❌ 网络请求失败: ${err.message}`, "error");
             } finally {
                 isProcessing.value = false;
             }
@@ -167,7 +182,6 @@ export default {
         const handleFileUpload = async (event) => {
             const file = event.target.files[0];
             if (!file) return;
-            terminalLines.value = []; // 清空之前的文字
             await sendAudioToBackend(file);
             audioInput.value.value = ""; 
         };
@@ -178,7 +192,7 @@ export default {
                 mediaRecorder.stream.getTracks().forEach(t => t.stop());
                 isRecording.value = false;
             } else {
-                terminalLines.value = []; // 开始新录音前清空终端
+                clearOutput(); // 开始新录音前清空历史
                 usedModelType.value = "";
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -197,11 +211,23 @@ export default {
             }
         };
 
+        const copyTranscript = async (item) => {
+            try {
+                await navigator.clipboard.writeText(item.text);
+                copiedItemId.value = item.id;
+                setTimeout(() => {
+                    if (copiedItemId.value === item.id) copiedItemId.value = null;
+                }, 1200);
+            } catch (e) {
+                alert("复制失败，请检查浏览器权限");
+            }
+        };
+
         return { 
             params, modelOptions, baseModelOptions, isRecording, isProcessing, audioInput, 
-            terminalLines, usedModelType, tempAudioPath,
+            transcriptItems, historyContainer, currentStatus, statusType, copiedItemId, usedModelType, tempAudioPath,
             selectedModelTag, isBaseModelName,
-            handleFileUpload, toggleRecording 
+            handleFileUpload, toggleRecording, copyTranscript
         };
     }
 }
