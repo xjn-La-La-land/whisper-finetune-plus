@@ -12,12 +12,25 @@ from shared_state import GPUStatus, GPU_STATE, INFERENCE_CACHE
 
 router = APIRouter()
 
-# 基础模型路径
-BASE_MODEL_PATH = "/home/featurize/whisper-large-v3"
+# 基础模型目录（与微调面板保持一致）
+BASE_MODELS_DIR = os.path.expanduser(
+    os.environ.get("WHISPER_BASE_MODELS_DIR", "~/whisper-base-models")
+)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
 
 DEFAULT_BATCH_SIZE = 16
+
+
+def resolve_base_model_paths():
+    """扫描基础模型目录，返回 {model_name: model_path}。"""
+    if not os.path.isdir(BASE_MODELS_DIR):
+        return {}
+    models = {}
+    for entry in os.scandir(BASE_MODELS_DIR):
+        if entry.is_dir():
+            models[entry.name] = entry.path
+    return models
 
 
 def resolve_user_model_path(username: str):
@@ -101,23 +114,29 @@ async def api_recognition(
     to_simple: int = Form(1),
     remove_pun: int = Form(0),
     num_beams: int = Form(1),
-    model_name: str = Form("BASE_MODEL"),
+    model_name: str = Form("whisper-large-v3"),
     audio: UploadFile = File(...)
 ):
     # 1. 检查 GPU 状态 (如果是训练，直接拒绝)
     if GPU_STATE["status"] == GPUStatus.TRAINING:
         raise HTTPException(status_code=423, detail="GPU 正在进行训练任务，请稍后再试！")
     
-    # 2. 确定目标模型路径 (优先找该用户的微调模型，找不到用Base)
+    # 2. 确定目标模型路径（支持基础模型与用户微调模型）
     user_models = resolve_user_model_path(username)
+    user_model_by_name = {m["model_name"]: m for m in user_models}
+    base_models = resolve_base_model_paths()
     selected_model = None
-    if model_name != "BASE_MODEL":
-        selected_model = next((m for m in user_models if m["model_name"] == model_name), None)
-        if not selected_model:
-            raise HTTPException(status_code=400, detail="未找到指定微调模型，请先重新选择模型")
+    selected_type = None
+
+    if model_name in user_model_by_name:
+        selected_model = user_model_by_name[model_name]
         target_model_path = selected_model["model_path"]
+        selected_type = "finetuned"
+    elif model_name in base_models:
+        target_model_path = base_models[model_name]
+        selected_type = "base"
     else:
-        target_model_path = BASE_MODEL_PATH
+        raise HTTPException(status_code=400, detail="未找到指定模型，请重新选择")
     
     # 3. 动态热插拔：如果显存里的模型不是我们想要的，就重新加载
     if INFERENCE_CACHE["loaded_model_path"] != target_model_path:
@@ -150,7 +169,8 @@ async def api_recognition(
         return {
             "code": 0,
             "results": results,
-            "used_model": selected_model["model_name"] if selected_model else "BASE_MODEL"
+            "used_model": model_name,
+            "used_model_type": selected_type
         }
     finally:
         # 推理结束，状态保持 INFERENCING，不卸载模型，以便下次秒级响应
