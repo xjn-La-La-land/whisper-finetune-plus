@@ -92,9 +92,9 @@ async def api_recognition(
     model_type: str = Form("base"), # 接收模型选择 ("base" 或 "finetuned")
     audio: UploadFile = File(...)
 ):
-    # 1. 检查 GPU 状态 (如果是训练或评估，直接拒绝)
-    if GPU_STATE["status"] in [GPUStatus.TRAINING, GPUStatus.EVALUATING]:
-        raise HTTPException(status_code=423, detail="GPU 正在进行训练或评估任务，请稍后再试！")
+    # 1. 检查 GPU 状态 (如果是训练，直接拒绝)
+    if GPU_STATE["status"] == GPUStatus.TRAINING:
+        raise HTTPException(status_code=423, detail="GPU 正在进行训练任务，请稍后再试！")
     
     # 2. 确定目标模型路径 (优先找该用户的微调模型，找不到用Base)
     user_model_dir = resolve_user_model_path(username)
