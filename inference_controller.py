@@ -65,7 +65,7 @@ def resolve_user_model_path(username: str):
 
     valid_models = []
     for row in rows:
-        model_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "checkpoint-best")
+        model_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "checkpoint-final")
         if os.path.exists(model_path):
             valid_models.append({
                 "model_name": row["model_name"],
@@ -113,13 +113,22 @@ def load_model_to_gpu(model_path: str):
         torch_dtype=torch_dtype,
         low_cpu_mem_usage=True,
         use_safetensors=True,
-        use_flash_attention_2=True  # 如果显卡不支持可改为False
+        use_flash_attention_2=True
     )
+
     if lora_model_path:
         model = PeftModel.from_pretrained(base_model, lora_model_path)
         model = model.merge_and_unload()
     else:
         model = base_model
+
+    if hasattr(processor, "get_decoder_prompt_ids"):
+        model.generation_config.forced_decoder_ids = processor.get_decoder_prompt_ids(
+            language="zh",
+            task="transcribe"
+        )
+    model.generation_config.suppress_tokens = []
+
     model.to(device)
 
     infer_pipe = pipeline(
@@ -185,16 +194,35 @@ async def api_recognition(
         data = await audio.read()
         generate_kwargs = {"task": "transcribe", "num_beams": num_beams, "language": "chinese"}
         
-        result = INFERENCE_CACHE["pipeline"](data, return_timestamps=True, generate_kwargs=generate_kwargs)
+        result = INFERENCE_CACHE["pipeline"](data, return_timestamps=False, generate_kwargs=generate_kwargs)
+        print("RAW RESULT =", result)
         
         results = []
-        for chunk in result.get("chunks", []):
-            text = chunk['text']
+        chunks = result.get("chunks", [])
+        if chunks:
+            for chunk in chunks:
+                text = chunk["text"]
+                if to_simple == 1:
+                    text = convert(text, "zh-cn")
+                if remove_pun == 1:
+                    text = remove_punctuation(text)
+                results.append({
+                    "text": text,
+                    "start": chunk["timestamp"][0],
+                    "end": chunk["timestamp"][1]
+                })
+        else:
+            text = result.get("text", "").strip()
             if to_simple == 1:
-                text = convert(text, 'zh-cn')
+                text = convert(text, "zh-cn")
             if remove_pun == 1:
                 text = remove_punctuation(text)
-            results.append({"text": text, "start": chunk['timestamp'][0], "end": chunk['timestamp'][1]})
+            if text:
+                results.append({
+                    "text": text,
+                    "start": None,
+                    "end": None
+                })
             
         return {
             "code": 0,
