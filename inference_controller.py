@@ -194,35 +194,22 @@ async def api_recognition(
         data = await audio.read()
         generate_kwargs = {"task": "transcribe", "num_beams": num_beams, "language": "chinese"}
         
-        result = INFERENCE_CACHE["pipeline"](data, return_timestamps=False, generate_kwargs=generate_kwargs)
+        result = INFERENCE_CACHE["pipeline"](data, return_timestamps=True, generate_kwargs=generate_kwargs)
         print("RAW RESULT =", result)
         
         results = []
         chunks = result.get("chunks", [])
-        if chunks:
-            for chunk in chunks:
-                text = chunk["text"]
-                if to_simple == 1:
-                    text = convert(text, "zh-cn")
-                if remove_pun == 1:
-                    text = remove_punctuation(text)
-                results.append({
-                    "text": text,
-                    "start": chunk["timestamp"][0],
-                    "end": chunk["timestamp"][1]
-                })
-        else:
-            text = result.get("text", "").strip()
+        for chunk in chunks:
+            text = chunk["text"]
             if to_simple == 1:
                 text = convert(text, "zh-cn")
             if remove_pun == 1:
                 text = remove_punctuation(text)
-            if text:
-                results.append({
-                    "text": text,
-                    "start": None,
-                    "end": None
-                })
+            results.append({
+                "text": text,
+                "start": chunk["timestamp"][0],
+                "end": chunk["timestamp"][1]
+            })
             
         return {
             "code": 0,
