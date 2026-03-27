@@ -12,6 +12,9 @@ from shared_state import GPUStatus, GPU_STATE
 router = APIRouter()
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
+BASE_MODELS_DIR = os.path.expanduser(
+    os.environ.get("WHISPER_BASE_MODELS_DIR", "~/whisper-base-models")
+)
 
 
 def _is_user_training(username: str) -> bool:
@@ -63,6 +66,17 @@ class FinetuneRequest(BaseModel):
     fp16: bool = Field(default=True, description="是否使用混合精度训练")
     min_audio_len: float = Field(default=0.5, ge=0.1, description="最小音频长度(秒)")
     max_audio_len: float = Field(default=30.0, le=30.0, description="最大音频长度(秒)")
+    base_model: str = Field(..., min_length=1, description="Whisper 基础模型目录名")
+
+
+def _list_base_model_dirs():
+    if not os.path.isdir(BASE_MODELS_DIR):
+        return []
+    models = []
+    for entry in os.scandir(BASE_MODELS_DIR):
+        if entry.is_dir():
+            models.append(entry.name)
+    return sorted(models)
 
 
 async def run_finetune_process(req: FinetuneRequest):
@@ -72,6 +86,7 @@ async def run_finetune_process(req: FinetuneRequest):
     dataset_dir = os.path.join(PROJECT_ROOT, "dataset", req.username)
     output_dir = os.path.join(PROJECT_ROOT, "output", req.model_name)
     web_log_path = os.path.join(dataset_dir, "training_log.jsonl")
+    base_model_path = os.path.join(BASE_MODELS_DIR, req.base_model)
 
     # 先在后端侧主动清空旧日志，避免 SSE 先读到旧文件后被训练进程 truncate 导致读指针卡在 EOF
     with open(web_log_path, "w", encoding="utf-8"):
@@ -84,6 +99,7 @@ async def run_finetune_process(req: FinetuneRequest):
         f"--test_data={os.path.join(dataset_dir, 'test.json')}",
         f"--output_dir={output_dir}",
         f"--web_log_path={web_log_path}",
+        f"--base_model={base_model_path}",
         # 动态接收前端传来的值
         f"--warmup_steps={req.warmup_steps}",
         f"--learning_rate={req.learning_rate}",
@@ -137,6 +153,12 @@ async def start_finetune(req: FinetuneRequest, background_tasks: BackgroundTasks
     if _model_name_exists(req.username, model_name):
         raise HTTPException(status_code=400, detail="模型名称已存在，请换一个名字")
     req.model_name = model_name
+    req.base_model = req.base_model.strip()
+    if not req.base_model:
+        raise HTTPException(status_code=400, detail="请先选择基础模型")
+    available_base_models = set(_list_base_model_dirs())
+    if req.base_model not in available_base_models:
+        raise HTTPException(status_code=400, detail=f"基础模型不存在: {req.base_model}")
 
     # --- 检查 GPU 锁 ---
     if GPU_STATE["status"] != GPUStatus.IDLE:
@@ -153,6 +175,15 @@ async def start_finetune(req: FinetuneRequest, background_tasks: BackgroundTasks
     background_tasks.add_task(run_finetune_process, req)
     
     return {"message": "微调任务已在后台启动！"}
+
+
+@router.get("/api/base_models")
+async def get_base_models():
+    models = _list_base_model_dirs()
+    return {
+        "base_models_dir": BASE_MODELS_DIR,
+        "models": models
+    }
 
 @router.get("/api/gpu_status")
 async def get_gpu_status():

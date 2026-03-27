@@ -1,4 +1,4 @@
-const { ref, onMounted, nextTick } = Vue;
+const { ref, onMounted, nextTick, watch } = Vue;
 
 export default {
     template: '#tpl-inference-panel',
@@ -9,10 +9,11 @@ export default {
             to_simple: true,
             remove_pun: false,
             num_beams: 1,
-            selected_model: 'BASE_MODEL' // 默认选择基础模型
+            selected_model: ''
         });
 
-        const modelOptions = ref([]); // 用户模型列表
+        const modelOptions = ref([]); // 用户微调模型列表
+        const baseModelOptions = ref([]); // 基础模型列表
 
         // --- 录音与 UI 状态 ---
         const isRecording = ref(false);
@@ -51,27 +52,55 @@ export default {
             }
         };
 
+        const ensureSelectedModel = () => {
+            const finetunedNames = modelOptions.value.map(m => m.model_name);
+            const baseNames = [...baseModelOptions.value];
+            const allNames = new Set([...finetunedNames, ...baseNames]);
+            if (!allNames.size) {
+                params.value.selected_model = '';
+                return;
+            }
+            if (!params.value.selected_model || !allNames.has(params.value.selected_model)) {
+                if (baseNames.includes('whisper-large-v3')) {
+                    params.value.selected_model = 'whisper-large-v3';
+                } else {
+                    params.value.selected_model = baseNames[0] || finetunedNames[0];
+                }
+            }
+        };
+
+        const isBaseModelName = (modelName) => baseModelOptions.value.includes(modelName);
+        const selectedModelTag = () => {
+            if (!params.value.selected_model) return "";
+            return isBaseModelName(params.value.selected_model) ? "base" : "finetuned";
+        };
+
         // 检查模型是否存在
         const checkModelStatus = async () => {
             if (!props.currentUser) return;
             try {
-                const res = await fetch(`/api/user_models?username=${encodeURIComponent(props.currentUser)}`);
-                const data = await res.json();
-                modelOptions.value = Array.isArray(data.models) ? data.models : [];
-                if (!modelOptions.value.length) {
-                    params.value.selected_model = 'BASE_MODEL';
-                } else if (
-                    params.value.selected_model !== 'BASE_MODEL' &&
-                    !modelOptions.value.some(m => m.model_name === params.value.selected_model)
-                ) {
-                    params.value.selected_model = 'BASE_MODEL';
-                }
+                const [userModelsRes, baseModelsRes] = await Promise.all([
+                    fetch(`/api/user_models?username=${encodeURIComponent(props.currentUser)}`),
+                    fetch('/api/base_models', { cache: 'no-store' })
+                ]);
+                const userModelsData = await userModelsRes.json();
+                const baseModelsData = await baseModelsRes.json();
+                modelOptions.value = Array.isArray(userModelsData.models) ? userModelsData.models : [];
+                baseModelOptions.value = Array.isArray(baseModelsData.models) ? baseModelsData.models : [];
+                ensureSelectedModel();
             } catch (e) {
                 console.error("检查模型状态失败", e);
+                modelOptions.value = [];
+                baseModelOptions.value = [];
+                params.value.selected_model = '';
             }
         };
 
         const sendAudioToBackend = async (audioBlob) => {
+            if (!params.value.selected_model) {
+                alert("请先选择一个可用模型");
+                return;
+            }
             isProcessing.value = true;
             // 每次开始前清空旧内容，让新的识别结果处于视觉重心
             terminalLines.value = []; 
@@ -98,7 +127,8 @@ export default {
                 }
                 const data = await res.json();
                 
-                usedModelType.value = data.used_model === "BASE_MODEL" ? "基础模型" : `专属模型：${data.used_model}`;
+                const usedType = data.used_model_type === "base" ? "base" : "finetuned";
+                usedModelType.value = `${data.used_model} (${usedType})`;
                 await typeWriterEffect(`> ✅ 模型加载就绪 [${usedModelType.value}]，开始解码...`, "system");
 
                 // 逐句输出，这里必须用 await 确保打完一句再打下一句
@@ -117,8 +147,21 @@ export default {
         };
 
         onMounted(() => {
-            checkModelStatus(); 
+            checkModelStatus();
         });
+
+        watch(
+            () => props.currentUser,
+            async (newUser) => {
+                if (!newUser) {
+                    modelOptions.value = [];
+                    baseModelOptions.value = [];
+                    params.value.selected_model = '';
+                    return;
+                }
+                await checkModelStatus();
+            }
+        );
 
         // --- 交互动作 ---
         const handleFileUpload = async (event) => {
@@ -155,8 +198,9 @@ export default {
         };
 
         return { 
-            params, modelOptions, isRecording, isProcessing, audioInput, 
+            params, modelOptions, baseModelOptions, isRecording, isProcessing, audioInput, 
             terminalLines, usedModelType, tempAudioPath,
+            selectedModelTag, isBaseModelName,
             handleFileUpload, toggleRecording 
         };
     }

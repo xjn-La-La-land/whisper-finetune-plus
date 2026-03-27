@@ -282,6 +282,23 @@
                         </div>
                     </div>
 
+                    <div class="col-span-1 md:col-span-2 bg-blue-50/60 p-5 rounded-2xl border border-blue-100">
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
+                            <span>基础模型 <span class="text-gray-400 font-normal">(Base Model)</span></span>
+                        </label>
+                        <div class="flex flex-col gap-3">
+                            <select v-model="finetuneParams.base_model"
+                                    class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 font-semibold text-gray-700 bg-white">
+                                <option disabled value="">请选择基础模型</option>
+                                <option v-for="model in baseModelOptions" :key="model" :value="model">
+                                    {{ model }}
+                                </option>
+                            </select>
+                            <p v-if="baseModelError" class="text-xs text-red-500">{{ baseModelError }}</p>
+                            <p v-else class="text-xs text-gray-500">后端会从 <code>$HOME/whisper-base-models</code> 自动读取可用目录。</p>
+                        </div>
+                    </div>
+
                     <div>
                         <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
                             <span>训练轮数 <span class="text-gray-400 font-normal">(Epochs)</span></span>
@@ -464,12 +481,24 @@
                 <div class="md:col-span-3 bg-white p-6 rounded-[2rem] shadow-sm border border-blue-50 flex flex-wrap gap-6 items-center justify-around">
                     <div class="flex flex-col gap-2">
                         <span class="text-xs font-bold text-gray-400 uppercase ml-1">识别权重</span>
-                        <select v-model="params.selected_model" class="bg-blue-50 border-none rounded-2xl px-4 py-3 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner">
-                            <option value="BASE_MODEL">基础模型 (whisper-large-v3)</option>
-                            <option v-for="model in modelOptions" :key="model.model_name" :value="model.model_name">
-                                {{ model.model_name }}
-                            </option>
+                        <select v-model="params.selected_model" class="bg-blue-50 border-none rounded-2xl px-4 py-3 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner min-w-[230px]">
+                            <option disabled value="">请选择模型</option>
+                            <optgroup label="Base Models">
+                                <option v-for="baseModel in baseModelOptions" :key="baseModel" :value="baseModel">
+                                    {{ baseModel }} (base)
+                                </option>
+                            </optgroup>
+                            <optgroup label="Finetuned Models">
+                                <option v-for="model in modelOptions" :key="model.model_name" :value="model.model_name">
+                                    {{ model.model_name }} (finetuned)
+                                </option>
+                            </optgroup>
                         </select>
+                        <span v-if="params.selected_model"
+                              class="text-[10px] font-bold uppercase px-2 py-1 rounded-full w-fit"
+                              :class="selectedModelTag() === 'base' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'">
+                            {{ selectedModelTag() }}
+                        </span>
                     </div>
                     <div class="flex items-center gap-4 pt-4">
                         <label class="flex items-center gap-2 cursor-pointer font-bold text-gray-600 transition hover:text-blue-500">

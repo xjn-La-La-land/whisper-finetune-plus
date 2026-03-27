@@ -12,6 +12,8 @@ export default {
         const isTraining = ref(false);
         const hasChartData = ref(false); // 控制图表和占位符的切换
         const chartError = ref("");
+        const baseModelOptions = ref([]);
+        const baseModelError = ref("");
 
         // 检查数据集状态（页面刷新后恢复步骤解锁状态）
         const checkDatasetStatus = async () => {
@@ -63,6 +65,7 @@ export default {
         const datasetParams = ref({ test_ratio: 0.05 });
         const finetuneParams = ref({
             model_name: "",
+            base_model: "",
             learning_rate: 0.0002,
             epochs: 20,
             batch_size: 8,
@@ -82,6 +85,29 @@ export default {
         const enforceMaxLen = () => {
             if (finetuneParams.value.max_audio_len < finetuneParams.value.min_audio_len + 0.5) {
                 finetuneParams.value.max_audio_len = finetuneParams.value.min_audio_len + 0.5;
+            }
+        };
+
+        const loadBaseModelOptions = async () => {
+            try {
+                baseModelError.value = "";
+                const res = await fetch('/api/base_models', { cache: 'no-store' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                baseModelOptions.value = Array.isArray(data.models) ? data.models : [];
+                if (!baseModelOptions.value.length) {
+                    baseModelError.value = "未找到可用基础模型，请先将模型目录放到 $HOME/whisper-base-models。";
+                    finetuneParams.value.base_model = "";
+                    return;
+                }
+                if (!baseModelOptions.value.includes(finetuneParams.value.base_model)) {
+                    finetuneParams.value.base_model = baseModelOptions.value[0];
+                }
+            } catch (err) {
+                console.error("加载基础模型列表失败", err);
+                baseModelError.value = "加载基础模型列表失败，请检查后端服务是否正常。";
+                baseModelOptions.value = [];
+                finetuneParams.value.base_model = "";
             }
         };
 
@@ -335,6 +361,10 @@ export default {
                 alert("请先输入模型名称");
                 return;
             }
+            if (!finetuneParams.value.base_model) {
+                alert("请先选择基础模型");
+                return;
+            }
             
             isTraining.value = true;
 
@@ -345,6 +375,7 @@ export default {
                     body: JSON.stringify({
                         username: props.currentUser,
                         model_name: finetuneParams.value.model_name.trim(),
+                        base_model: finetuneParams.value.base_model,
                         learning_rate: finetuneParams.value.learning_rate,
                         epochs: finetuneParams.value.epochs,
                         accumulation_steps: finetuneParams.value.gradient_accumulation_steps,
@@ -382,6 +413,7 @@ export default {
             window.addEventListener('resize', handleResize);
 
             await refreshStepStatus();
+            await loadBaseModelOptions();
             await loadChartHistory();
             await checkTrainingStatus();
         });
@@ -391,6 +423,7 @@ export default {
             if (myChart) myChart.resize();
 
             await refreshStepStatus();
+            await loadBaseModelOptions();
             await loadChartHistory();
             await checkTrainingStatus();
         });
@@ -414,10 +447,12 @@ export default {
                         eventSource = null;
                     }
                     finetuneParams.value.model_name = "";
+                    finetuneParams.value.base_model = "";
                     return;
                 }
 
                 await refreshStepStatus();
+                await loadBaseModelOptions();
                 await loadChartHistory();
                 await checkTrainingStatus();
             }
@@ -439,6 +474,8 @@ export default {
             isTraining,
             hasChartData,
             chartError,
+            baseModelOptions,
+            baseModelError,
             handleBuildDataset,
             handleStartFinetune,
             enforceMinLen,
