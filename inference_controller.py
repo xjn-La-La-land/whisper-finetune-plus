@@ -65,7 +65,7 @@ def resolve_user_model_path(username: str):
 
     valid_models = []
     for row in rows:
-        model_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"])
+        model_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "checkpoint-best")
         if os.path.exists(model_path):
             valid_models.append({
                 "model_name": row["model_name"],
