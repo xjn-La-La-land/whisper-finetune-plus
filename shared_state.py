@@ -4,7 +4,6 @@
 class GPUStatus:
     IDLE = "IDLE"               # 空闲
     TRAINING = "TRAINING"       # 正在微调
-    EVALUATING = "EVALUATING"   # 正在评估考试
     INFERENCING = "INFERENCING" # 正在运行推理服务
 
 # 全局 GPU 状态锁

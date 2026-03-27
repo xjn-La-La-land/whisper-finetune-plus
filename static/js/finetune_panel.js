@@ -13,27 +13,6 @@ export default {
         const hasChartData = ref(false); // 控制图表和占位符的切换
         const chartError = ref("");
 
-        // 评估模块状态
-        const hasModel = ref(false);      // 是否已生成模型
-        const isEvaluating = ref(false);  // 是否正在评估
-        const evalResult = ref(null);     // 评估分数(CER)
-
-        // 检查模型状态
-        const checkModelStatus = async () => {
-            if (!props.currentUser) return;
-            try {
-                const res = await fetch(`/api/check_model?username=${encodeURIComponent(props.currentUser)}`, {
-                    cache: 'no-store'
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                hasModel.value = data.has_model;
-            } catch (e) {
-                console.error("检查模型状态失败", e);
-            }
-        };
-
-
         // 检查数据集状态（页面刷新后恢复步骤解锁状态）
         const checkDatasetStatus = async () => {
             if (!props.currentUser) return;
@@ -50,7 +29,7 @@ export default {
         };
 
         const refreshStepStatus = async () => {
-            await Promise.all([checkDatasetStatus(), checkModelStatus()]);
+            await checkDatasetStatus();
         };
 
         // 检查训练占用状态（解决页面刷新后 isTraining 丢失的问题）
@@ -73,35 +52,6 @@ export default {
             }
         };
 
-
-        // 发起评估请求
-        const handleEvaluate = async () => {
-            if (!props.currentUser) return;
-            isEvaluating.value = true;
-            evalResult.value = null;
-
-            try {
-                const res = await fetch('/api/evaluate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        username: props.currentUser,
-                        batch_size: 8 // 测试集较小，batch给固定值即可
-                    })
-                });
-
-                const data = await res.json();
-                if (res.ok) {
-                    evalResult.value = data.cer;
-                } else {
-                    alert(`评估失败: ${data.detail}`);
-                }
-            } catch (err) {
-                alert("请求评估接口失败！");
-            } finally {
-                isEvaluating.value = false;
-            }
-        };
 
         // 图表相关变量
         const chartRef = ref(null);
@@ -312,7 +262,6 @@ export default {
                     eventSource.close();
                     eventSource = null;
                     alert("🎉 恭喜！模型专属微调已成功完成！");
-                    checkModelStatus();
                     return;
                 }
 
@@ -445,7 +394,6 @@ export default {
             async (newUser) => {
                 if (!newUser) {
                     hasDataset.value = false;
-                    hasModel.value = false;
                     isTraining.value = false;
                     hasChartData.value = false;
                     trainLossData = [];
@@ -488,10 +436,6 @@ export default {
             handleStartFinetune,
             enforceMinLen,
             enforceMaxLen,
-            hasModel,
-            isEvaluating,
-            evalResult,
-            handleEvaluate
         };
     }
 }

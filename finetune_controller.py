@@ -6,7 +6,6 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
-import re
 from shared_state import GPUStatus, GPU_STATE
 
 router = APIRouter()
@@ -247,69 +246,10 @@ async def get_train_history(username: str):
     }
 
 
-# 模型检查与评估模块
-class EvaluateRequest(BaseModel):
-    username: str
-    batch_size: int = 8
-
-
+# 模型检查
 @router.get("/api/check_model")
 async def check_model(username: str):
     """前端轮询或初始化时调用，检查该用户是否已经有训练好的模型"""
 
     model_path = _resolve_user_model_path(username)
     return {"has_model": model_path is not None}
-
-
-@router.post("/api/evaluate")
-async def evaluate_model(req: EvaluateRequest):
-    """拉起 evaluation.py 并截获结果 (因为测试集较小，这里直接使用 await 阻塞等待结果返回前端)"""
-    if GPU_STATE["status"] != GPUStatus.IDLE:
-        raise HTTPException(
-            status_code=423, 
-            detail=f"GPU 正忙 ({GPU_STATE['status']})，被 [{GPU_STATE['current_user']}] 占用"
-        )
-    
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    dataset_dir = os.path.join(PROJECT_ROOT, "dataset", req.username)
-    model_path = _resolve_user_model_path(req.username)
-    
-    if not model_path:
-        raise HTTPException(status_code=400, detail="未找到您的专属模型，请先完成微调训练！")
-
-    GPU_STATE["status"] = GPUStatus.EVALUATING
-    GPU_STATE["current_user"] = req.username
-
-    cmd = [
-        "python", "evaluation.py",
-        f"--test_data={os.path.join(dataset_dir, 'test.json')}",
-        f"--model_path={model_path}",
-        f"--batch_size={req.batch_size}"
-    ]
-
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        
-        output_str = stdout.decode('utf-8')
-        
-        if process.returncode != 0:
-            print(f"评估报错: {stderr.decode('utf-8')}")
-            raise HTTPException(status_code=500, detail="模型评估过程中发生错误")
-
-        # 使用正则截获终端打印的 CER 结果：例如 "评估结果：cer=0.12345"
-        cer_match = re.search(r"评估结果：cer=([\d\.]+)", output_str)
-        if cer_match:
-            cer_value = float(cer_match.group(1))
-            return {"message": "评估完成", "cer": cer_value}
-        else:
-            raise HTTPException(status_code=500, detail="未能成功解析评估结果")
-
-    finally:
-        # 执行完毕，释放 GPU
-        GPU_STATE["status"] = GPUStatus.IDLE
-        GPU_STATE["current_user"] = None
