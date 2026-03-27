@@ -63,8 +63,7 @@ export default {
             }
         };
 
-        const clearOutput = () => {
-            transcriptItems.value = [];
+        const resetStatusOnly = () => {
             currentStatus.value = "等待输入音频...";
             statusType.value = "system";
             copiedItemId.value = null;
@@ -120,7 +119,7 @@ export default {
                 return;
             }
             isProcessing.value = true;
-            clearOutput();
+            resetStatusOnly();
             
             if (tempAudioPath.value) URL.revokeObjectURL(tempAudioPath.value);
             tempAudioPath.value = URL.createObjectURL(audioBlob);
@@ -192,7 +191,7 @@ export default {
                 mediaRecorder.stream.getTracks().forEach(t => t.stop());
                 isRecording.value = false;
             } else {
-                clearOutput(); // 开始新录音前清空历史
+                resetStatusOnly();
                 usedModelType.value = "";
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
