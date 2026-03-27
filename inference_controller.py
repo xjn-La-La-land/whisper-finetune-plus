@@ -1,9 +1,11 @@
 # inference_controller.py
 import os
 import gc
+import json
 import sqlite3
 import torch
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from peft import PeftModel
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from zhconv import convert
 from utils.data_utils import remove_punctuation
@@ -20,6 +22,17 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
 
 DEFAULT_BATCH_SIZE = 16
+
+
+def resolve_lora_base_model_path(model_path: str):
+    """如果是 LoRA 目录，返回其 base_model_name_or_path；否则返回 None。"""
+    adapter_config_path = os.path.join(model_path, "adapter_config.json")
+    if not os.path.isfile(adapter_config_path):
+        return None
+
+    with open(adapter_config_path, "r", encoding="utf-8") as f:
+        adapter_config = json.load(f)
+    return adapter_config.get("base_model_name_or_path")
 
 
 def resolve_base_model_paths():
@@ -82,14 +95,27 @@ def load_model_to_gpu(model_path: str):
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-    processor = AutoProcessor.from_pretrained(model_path)
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(
-        model_path, 
-        torch_dtype=torch_dtype, 
-        low_cpu_mem_usage=True, 
+    # model_path 既可能是基础模型路径，也可能是 LoRA 权重目录
+    lora_model_path = None
+    base_model_path = model_path
+    resolved_base_model_path = resolve_lora_base_model_path(model_path)
+    if resolved_base_model_path:
+        lora_model_path = model_path
+        base_model_path = resolved_base_model_path
+
+    processor = AutoProcessor.from_pretrained(base_model_path)
+    base_model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        base_model_path,
+        torch_dtype=torch_dtype,
+        low_cpu_mem_usage=True,
         use_safetensors=True,
-        use_flash_attention_2=True # 如果显卡不支持可改为False
+        use_flash_attention_2=True  # 如果显卡不支持可改为False
     )
+    if lora_model_path:
+        model = PeftModel.from_pretrained(base_model, lora_model_path)
+        model = model.merge_and_unload()
+    else:
+        model = base_model
     model.to(device)
 
     infer_pipe = pipeline(
