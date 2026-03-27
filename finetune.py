@@ -178,9 +178,7 @@ def main():
             )
         model = get_peft_model(model, config)
 
-    if args.base_model.endswith("/"):
-        args.base_model = args.base_model[:-1]
-    output_dir = str(os.path.join(args.output_dir, os.path.basename(args.base_model)))
+    output_dir = args.output_dir
     # 定义训练参数
     training_args = \
         Seq2SeqTrainingArguments(output_dir=output_dir,  # 保存检查点和意志的目录

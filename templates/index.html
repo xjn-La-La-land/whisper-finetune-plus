@@ -269,6 +269,19 @@
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="col-span-1 md:col-span-2 bg-indigo-50/60 p-5 rounded-2xl border border-indigo-100">
+                        <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
+                            <span>模型名称 <span class="text-gray-400 font-normal">(显示在推理下拉列表)</span></span>
+                        </label>
+                        <div class="flex flex-col gap-3">
+                            <input v-model.trim="finetuneParams.model_name"
+                                   type="text"
+                                   placeholder="例如：客服热线-v1 / 口播女声-2026Q1"
+                                   class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-400 font-semibold text-gray-700 bg-white">
+                            <p class="text-xs text-gray-500">开始训练时会自动检查该名称是否已存在，若重复会提示你更换。</p>
+                        </div>
+                    </div>
+
                     <div>
                         <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
                             <span>训练轮数 <span class="text-gray-400 font-normal">(Epochs)</span></span>
@@ -452,8 +465,10 @@
                     <div class="flex flex-col gap-2">
                         <span class="text-xs font-bold text-gray-400 uppercase ml-1">识别权重</span>
                         <select v-model="params.selected_model" class="bg-blue-50 border-none rounded-2xl px-4 py-3 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner">
-                            <option value="base">基础模型 (whisper-large-v3)</option>
-                            <option v-if="hasModel" value="finetuned">[{{ currentUser }}] 专属模型</option>
+                            <option value="BASE_MODEL">基础模型 (whisper-large-v3)</option>
+                            <option v-for="model in modelOptions" :key="model.model_name" :value="model.model_name">
+                                {{ model.model_name }}
+                            </option>
                         </select>
                     </div>
                     <div class="flex items-center gap-4 pt-4">

@@ -2,13 +2,16 @@
 import os
 import asyncio
 import json
-from typing import Optional
+import sqlite3
+import time
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
 from shared_state import GPUStatus, GPU_STATE
 
 router = APIRouter()
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
 
 
 def _is_user_training(username: str) -> bool:
@@ -19,29 +22,37 @@ def _is_user_training(username: str) -> bool:
     )
 
 
-def _resolve_user_model_path(username: str) -> Optional[str]:
-    """
-    查找用户微调完成后的 checkpoint-final 目录。
-    目录结构：output/{username}/{base_model_name}/checkpoint-final
-    """
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    user_output_dir = os.path.join(project_root, "output", username)
+def _upsert_user_model(username: str, model_name: str, model_path: str):
+    now_ts = int(time.time())
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        '''
+        INSERT INTO models (username, model_name, model_path, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(username, model_name)
+        DO UPDATE SET model_path = excluded.model_path, updated_at = excluded.updated_at
+        ''',
+        (username, model_name, model_path, now_ts, now_ts)
+    )
+    conn.commit()
+    conn.close()
 
-    direct_path = os.path.join(user_output_dir, "checkpoint-final")
-    if os.path.exists(direct_path):
-        return direct_path
 
-    if not os.path.isdir(user_output_dir):
-        return None
-
-    for entry in os.listdir(user_output_dir):
-        candidate = os.path.join(user_output_dir, entry, "checkpoint-final")
-        if os.path.exists(candidate):
-            return candidate
-    return None
+def _model_name_exists(username: str, model_name: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'SELECT 1 FROM models WHERE username = ? AND model_name = ? LIMIT 1',
+        (username, model_name)
+    )
+    exists = c.fetchone() is not None
+    conn.close()
+    return exists
 
 class FinetuneRequest(BaseModel):
     username: str
+    model_name: str = Field(..., min_length=1, max_length=80, description="用户自定义模型名")
     learning_rate: float = Field(default=2e-4, description="学习率")
     epochs: int = Field(default=20, ge=1, le=200, description="训练轮数")
     batch_size: int = Field(default=8, ge=1, le=64, description="批次大小")
@@ -58,9 +69,8 @@ async def run_finetune_process(req: FinetuneRequest):
     """
     这是一个后台任务，负责实际拉起 finetune.py 进程并等待它结束。
     """
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
     dataset_dir = os.path.join(PROJECT_ROOT, "dataset", req.username)
-    output_dir = os.path.join(PROJECT_ROOT, "output", req.username)
+    output_dir = os.path.join(PROJECT_ROOT, "output", req.model_name)
     web_log_path = os.path.join(dataset_dir, "training_log.jsonl")
 
     # 先在后端侧主动清空旧日志，避免 SSE 先读到旧文件后被训练进程 truncate 导致读指针卡在 EOF
@@ -103,6 +113,11 @@ async def run_finetune_process(req: FinetuneRequest):
         
         if process.returncode == 0:
             print(f"[{req.username}] 微调成功！")
+            final_checkpoint = os.path.join(output_dir, "checkpoint-final")
+            if os.path.exists(final_checkpoint):
+                _upsert_user_model(req.username, req.model_name, final_checkpoint)
+            else:
+                print(f"[{req.username}] 警告：未找到 checkpoint-final，无法写入模型记录")
         else:
             print(f"[{req.username}] 报错：{stderr.decode()}")
     except Exception as e:
@@ -116,6 +131,13 @@ async def run_finetune_process(req: FinetuneRequest):
 
 @router.post("/api/start_finetune")
 async def start_finetune(req: FinetuneRequest, background_tasks: BackgroundTasks):
+    model_name = req.model_name.strip()
+    if not model_name:
+        raise HTTPException(status_code=400, detail="模型名称不能为空")
+    if _model_name_exists(req.username, model_name):
+        raise HTTPException(status_code=400, detail="模型名称已存在，请换一个名字")
+    req.model_name = model_name
+
     # --- 检查 GPU 锁 ---
     if GPU_STATE["status"] != GPUStatus.IDLE:
         raise HTTPException(
@@ -250,6 +272,8 @@ async def get_train_history(username: str):
 @router.get("/api/check_model")
 async def check_model(username: str):
     """前端轮询或初始化时调用，检查该用户是否已经有训练好的模型"""
-
-    model_path = _resolve_user_model_path(username)
-    return {"has_model": model_path is not None}
+    user_output_dir = os.path.join(PROJECT_ROOT, "output", username)
+    if not os.path.isdir(user_output_dir):
+        return {"has_model": False}
+    has_content = any(os.scandir(user_output_dir))
+    return {"has_model": has_content}
