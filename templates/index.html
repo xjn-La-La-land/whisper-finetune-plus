@@ -36,7 +36,7 @@
     </style>
 </head>
 <body class="bg-blue-50 font-sans min-h-screen pb-28 text-gray-800">
-    <div id="app" class="max-w-5xl mx-auto px-4 relative h-full">
+    <div id="app" class="max-w-[1600px] mx-auto px-4 lg:px-6 relative h-full">
         
         <div v-if="!currentUser" class="fixed inset-0 z-[200] bg-blue-50/95 backdrop-blur-md flex items-center justify-center">
             <div class="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full mx-4 border border-blue-100 text-center transform transition-all">
@@ -52,7 +52,7 @@
 
         <div v-if="currentUser">
             <div class="sticky top-0 z-50 bg-blue-50/60 backdrop-blur-xl pt-5 pb-3 mb-4 -mx-4 px-4 border-b border-white/40 shadow-sm transition-all">
-                <div class="flex items-center justify-between max-w-3xl mx-auto">
+                <div class="flex items-center justify-between max-w-[1500px] mx-auto">
                     <div class="flex-1"></div>
                     <h1 class="text-2xl md:text-3xl font-extrabold text-blue-600 text-center tracking-wider flex items-center justify-center gap-2 flex-[2] whitespace-nowrap">
                         <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
@@ -91,7 +91,7 @@
     <template id="tpl-audio-collector">
         <div>
             <div class="sticky top-[76px] z-40 bg-blue-50/40 backdrop-blur-lg pt-2 pb-4 mb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
-                <div class="mb-5 px-1 max-w-3xl mx-auto flex items-end gap-4">
+                <div class="mb-5 px-1 max-w-[1500px] mx-auto flex items-end gap-4">
                     <div class="flex-1">
                         <div class="flex justify-between text-sm font-bold text-gray-500 mb-1">
                             <span>当前录音进度</span>
@@ -227,7 +227,7 @@
     </template>
 
     <template id="tpl-finetune-panel">
-        <div class="max-w-4xl mx-auto space-y-6 pb-10">
+        <div class="max-w-[1500px] mx-auto space-y-6 pb-10">
             <div class="bg-white p-6 rounded-3xl shadow-sm border border-blue-50 text-center relative overflow-hidden">
                 <div class="absolute -right-6 -top-6 w-32 h-32 bg-blue-50 rounded-full opacity-50 pointer-events-none"></div>
                 <div class="absolute -left-6 -bottom-6 w-24 h-24 bg-green-50 rounded-full opacity-50 pointer-events-none"></div>
@@ -298,13 +298,16 @@
                             <span>基础模型 <span class="text-gray-400 font-normal">(Base Model)</span></span>
                         </label>
                         <div class="flex flex-col gap-3">
-                            <select v-model="finetuneParams.base_model"
-                                    class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 font-semibold text-gray-700 bg-white">
-                                <option disabled value="">请选择基础模型</option>
-                                <option v-for="model in baseModelOptions" :key="model" :value="model">
-                                    {{ model }}
-                                </option>
-                            </select>
+                            <div class="relative">
+                                <select v-model="finetuneParams.base_model"
+                                        class="appearance-none flex-1 w-full px-4 py-3 pr-10 border border-gray-200 rounded-[1.1rem] focus:outline-none focus:border-blue-400 font-semibold text-gray-700 bg-white">
+                                    <option disabled value="">请选择基础模型</option>
+                                    <option v-for="model in baseModelOptions" :key="model" :value="model">
+                                        {{ model }}
+                                    </option>
+                                </select>
+                                <span class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-blue-500 text-xs">▼</span>
+                            </div>
                             <p v-if="baseModelError" class="text-xs text-red-500">{{ baseModelError }}</p>
                             <p v-else class="text-xs text-gray-500">后端会从 <code>$HOME/whisper-base-models</code> 自动读取可用目录。</p>
                         </div>
@@ -457,7 +460,7 @@
     </template>
 
     <template id="tpl-inference-panel">
-        <div class="max-w-4xl mx-auto space-y-6 pb-16">
+        <div class="max-w-[1500px] mx-auto space-y-6 pb-16">
             <div class="bg-white p-8 rounded-3xl shadow-sm border border-blue-50 text-center relative overflow-hidden">
                 <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-50 rounded-full opacity-50"></div>
                 <h2 class="text-2xl md:text-3xl font-extrabold text-gray-800 mb-2 relative z-10 flex items-center justify-center gap-2">
@@ -518,19 +521,18 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="flex flex-col gap-2">
                             <label class="text-xs font-bold text-gray-400 uppercase ml-1">识别权重模型</label>
-                            <select v-model="params.selected_model" class="bg-blue-50 border-none rounded-2xl px-4 py-3 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner w-full">
-                                <option disabled value="">请选择模型</option>
-                                <optgroup label="Base Models">
-                                    <option v-for="baseModel in baseModelOptions" :key="baseModel" :value="baseModel">
+                            <div class="relative w-full">
+                                <select v-model="params.selected_model" class="appearance-none bg-blue-50 border border-blue-100 rounded-[1.2rem] px-4 py-3 pr-10 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner w-full">
+                                    <option disabled value="">请选择模型</option>
+                                    <option v-for="baseModel in baseModelOptions" :key="`base-${baseModel}`" :value="baseModel">
                                         {{ baseModel }} (base)
                                     </option>
-                                </optgroup>
-                                <optgroup label="Finetuned Models">
-                                    <option v-for="model in modelOptions" :key="model.model_name" :value="model.model_name">
+                                    <option v-for="model in modelOptions" :key="`finetuned-${model.model_name}`" :value="model.model_name">
                                         {{ model.model_name }} (finetuned)
                                     </option>
-                                </optgroup>
-                            </select>
+                                </select>
+                                <span class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-blue-500 text-xs">▼</span>
+                            </div>
                             <span v-if="params.selected_model"
                                   class="text-[10px] font-bold uppercase px-2 py-1 rounded-full w-fit"
                                   :class="selectedModelTag() === 'base' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'">
