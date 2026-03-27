@@ -186,10 +186,12 @@ async def api_recognition(
             load_model_to_gpu(target_model_path)
         except Exception as e:
             GPU_STATE["status"] = GPUStatus.IDLE
+            GPU_STATE["current_user"] = None
             raise HTTPException(status_code=500, detail=f"模型加载失败: {str(e)}")
 
     # 4. 执行推理
     GPU_STATE["status"] = GPUStatus.INFERENCING
+    GPU_STATE["current_user"] = username
     try:
         data = await audio.read()
         generate_kwargs = {"task": "transcribe", "num_beams": num_beams, "language": "chinese"}
@@ -218,5 +220,6 @@ async def api_recognition(
             "used_model_type": selected_type
         }
     finally:
-        # 推理结束，状态保持 INFERENCING，不卸载模型，以便下次秒级响应
-        pass
+        # 推理结束后释放 GPU 锁（仅释放状态，不卸载模型）
+        GPU_STATE["status"] = GPUStatus.IDLE
+        GPU_STATE["current_user"] = None
