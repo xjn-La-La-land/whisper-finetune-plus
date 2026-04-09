@@ -5,7 +5,7 @@ import shutil
 import aiofiles
 import subprocess
 import time
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -161,7 +161,7 @@ async def get_tasks(username: str):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    c.execute('SELECT * FROM tasks WHERE username = ?', (username,))
+    c.execute('SELECT * FROM tasks WHERE username = ? ORDER BY id ASC', (username,))
     tasks = [dict(row) for row in c.fetchall()]
     conn.close()
 
@@ -292,8 +292,8 @@ async def upload_audio(task_id: int, username: str, audio: UploadFile = File(...
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
             
-    except subprocess.CalledProcessError as e:
-        return {"error": "音频转换失败，请检查服务器是否已安装 ffmpeg！"}
+    except subprocess.CalledProcessError:
+        raise HTTPException(status_code=500, detail="音频转换失败，请检查服务器是否已安装 ffmpeg！")
         
     # 更新数据库状态
     conn = sqlite3.connect(DB_PATH)

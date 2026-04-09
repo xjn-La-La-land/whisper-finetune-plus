@@ -33,6 +33,7 @@
             background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(30, 41, 59, 0.96));
             box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35);
         }
+
     </style>
 </head>
 <body class="bg-blue-50 font-sans min-h-screen pb-28 text-gray-800">
@@ -180,47 +181,48 @@
                     </button>
 
                     <div class="pointer-events-auto bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl mx-2 md:mx-6 p-8 md:p-14 flex flex-col items-center text-center transform transition-all duration-300 border border-blue-50 relative">
-                        
-                        <button @click.stop="closeFocusMode" class="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition transform hover:rotate-90 bg-gray-100 rounded-full p-2">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        </button>
-
-                        <div class="bg-blue-100 text-blue-700 px-5 py-1.5 rounded-full text-sm font-extrabold mb-8 shadow-inner border border-blue-200">
-                            闯关进度：{{ focusedTaskIndex + 1 }} / {{ tasks.length }}
-                        </div>
-
-                        <h2 class="text-3xl md:text-5xl font-extrabold text-gray-800 leading-tight mb-14 tracking-wide">
-                            {{ focusedTask.text_content }}
-                        </h2>
-
-                        <div class="flex flex-col items-center gap-8 w-full">
-                            <div class="flex items-center justify-center gap-4 w-full">
-                                <button v-if="processingTaskId === focusedTask.id" disabled class="bg-gray-200 text-gray-500 px-8 py-4 rounded-full font-bold flex items-center gap-3 cursor-not-allowed text-xl shadow-inner">
-                                    <svg class="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>格式处理中...
-                                </button>
-                                <button v-else-if="recordingTaskId === focusedTask.id" @click.stop="stopRecording(focusedTask.id)" class="bg-red-500 hover:bg-red-600 text-white px-10 py-5 rounded-full font-extrabold transition flex items-center gap-3 animate-pulse text-xl shadow-xl shadow-red-500/40 transform hover:scale-105">
-                                    <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"></path></svg>停止录制
-                                </button>
-                                <button v-else @click.stop="startRecording(focusedTask.id)" class="bg-blue-500 hover:bg-blue-600 text-white px-10 py-5 rounded-full font-extrabold transition flex items-center gap-3 text-xl shadow-xl shadow-blue-500/30 transform hover:scale-105" :class="focusedTask.is_completed ? 'bg-orange-400 hover:bg-orange-500 shadow-orange-500/30' : ''">
-                                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>{{ focusedTask.is_completed ? '重新挑战 (重录)' : '点击开始录音' }}
-                                </button>
-                            </div>
                             
-                            <div v-if="focusedTask.is_completed && focusedTask.audio_path && processingTaskId !== focusedTask.id" class="mt-4 flex flex-col items-center gap-6 w-full">
-                                <div class="flex items-center gap-2 text-green-600 font-bold text-xl bg-green-50 px-6 py-2.5 rounded-full border border-green-200 shadow-sm">
-                                    <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>录制成功！
+                            <button @click.stop="closeFocusMode" class="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition transform hover:rotate-90 bg-gray-100 rounded-full p-2">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+
+                            <div class="bg-blue-100 text-blue-700 px-5 py-1.5 rounded-full text-sm font-extrabold mb-8 shadow-inner border border-blue-200">
+                                闯关进度：{{ focusedTaskIndex + 1 }} / {{ tasks.length }}
+                            </div>
+
+                            <h2 class="text-3xl md:text-5xl font-extrabold text-gray-800 leading-tight mb-14 tracking-wide">
+                                {{ focusedTask.text_content }}
+                            </h2>
+
+                            <div class="flex flex-col items-center gap-8 w-full">
+                                <div class="flex items-center justify-center gap-4 w-full">
+                                    <button v-if="processingTaskId === focusedTask.id" disabled class="bg-gray-200 text-gray-500 px-8 py-4 rounded-full font-bold flex items-center gap-3 cursor-not-allowed text-xl shadow-inner">
+                                        <svg class="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>格式处理中...
+                                    </button>
+                                    <button v-else-if="recordingTaskId === focusedTask.id" @click.stop="stopRecording(focusedTask.id)" class="bg-red-500 hover:bg-red-600 text-white px-10 py-5 rounded-full font-extrabold transition flex items-center gap-3 animate-pulse text-xl shadow-xl shadow-red-500/40 transform hover:scale-105">
+                                        <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"></path></svg>停止录制
+                                    </button>
+                                    <button v-else @click.stop="startRecording(focusedTask.id)" class="bg-blue-500 hover:bg-blue-600 text-white px-10 py-5 rounded-full font-extrabold transition flex items-center gap-3 text-xl shadow-xl shadow-blue-500/30 transform hover:scale-105" :class="focusedTask.is_completed ? 'bg-orange-400 hover:bg-orange-500 shadow-orange-500/30' : ''">
+                                        <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>{{ focusedTask.is_completed ? '重新挑战 (重录)' : '点击开始录音' }}
+                                    </button>
                                 </div>
-                                <div class="transform scale-125 md:scale-150 origin-top mt-4">
-                                    <custom-audio :src="focusedTask.audio_path"></custom-audio>
+                                
+                                <div v-if="focusedTask.is_completed && focusedTask.audio_path && processingTaskId !== focusedTask.id" class="mt-4 flex flex-col items-center gap-6 w-full">
+                                    <div class="flex items-center gap-2 text-green-600 font-bold text-xl bg-green-50 px-6 py-2.5 rounded-full border border-green-200 shadow-sm">
+                                        <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>录制成功！
+                                    </div>
+                                    <div class="transform scale-125 md:scale-150 origin-top mt-4">
+                                        <custom-audio :src="focusedTask.audio_path"></custom-audio>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
                     <button @click.stop="nextFocusTask" :disabled="focusedTaskIndex === tasks.length - 1" class="pointer-events-auto p-3 md:p-5 rounded-full bg-white/20 text-white hover:bg-white/30 disabled:opacity-0 disabled:cursor-not-allowed transition transform hover:translate-x-2 shadow-xl backdrop-blur-sm">
                         <svg class="w-8 h-8 md:w-10 md:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
                     </button>
                     
+                </div>
                 </div>
             </div>
         </div>

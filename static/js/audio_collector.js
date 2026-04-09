@@ -1,4 +1,4 @@
-const { ref, computed, onMounted, onUnmounted } = Vue;
+const { ref, computed, onMounted, onUnmounted, nextTick } = Vue;
 
 export default {
     template: '#tpl-audio-collector',
@@ -108,22 +108,28 @@ export default {
             const formData = new FormData();
             formData.append("audio", audioBlob, "record.webm");
             let uploadSucceeded = false;
+            const shouldAdvanceFocus = (
+                focusedTaskIndex.value !== null &&
+                focusedTask.value &&
+                focusedTask.value.id === taskId &&
+                focusedTaskIndex.value < tasks.value.length - 1
+            );
             try {
                 const response = await fetch(`/api/upload_audio/${taskId}?username=${encodeURIComponent(props.currentUser)}`, { method: 'POST', body: formData });
-                if (!response.ok) throw new Error(`Upload failed with status ${response.status}`);
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || `Upload failed with status ${response.status}`);
+                if (result.error) throw new Error(result.error);
                 uploadSucceeded = true;
             } catch (e) {
-                alert("保存失败！");
+                alert(e.message || "保存失败！");
             } finally {
                 processingTaskId.value = null;
                 await fetchTasks();
+                await nextTick();
 
-                // 仅在沉浸式模式中生效：当前任务上传成功后，自动切换到下一条任务
-                if (uploadSucceeded && focusedTaskIndex.value !== null) {
-                    const currentIndex = tasks.value.findIndex(task => task.id === taskId);
-                    if (currentIndex !== -1 && focusedTaskIndex.value === currentIndex && currentIndex < tasks.value.length - 1) {
-                        focusedTaskIndex.value = currentIndex + 1;
-                    }
+                // 录音上传成功后，直接复用沉浸模式“向右切换”的现有前端逻辑
+                if (uploadSucceeded && shouldAdvanceFocus) {
+                    nextFocusTask();
                 }
             }
         };
