@@ -4,3 +4,4 @@ uploads
 __pycache__
 token.txt
 output
+whisper-base-models

@@ -300,18 +300,54 @@
                             <span>基础模型 <span class="text-gray-400 font-normal">(Base Model)</span></span>
                         </label>
                         <div class="flex flex-col gap-3">
-                            <div class="relative">
-                                <select v-model="finetuneParams.base_model"
-                                        class="appearance-none flex-1 w-full px-4 py-3 pr-10 border border-gray-200 rounded-[1.1rem] focus:outline-none focus:border-blue-400 font-semibold text-gray-700 bg-white">
-                                    <option disabled value="">请选择基础模型</option>
-                                    <option v-for="model in baseModelOptions" :key="model" :value="model">
-                                        {{ model }}
-                                    </option>
-                                </select>
-                                <span class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-blue-500 text-xs">▼</span>
+                            <div class="flex flex-col md:flex-row gap-3">
+                                <div class="relative flex-1">
+                                    <select v-model="finetuneParams.base_model"
+                                            class="appearance-none flex-1 w-full px-4 py-3 pr-10 border border-gray-200 rounded-[1.1rem] focus:outline-none focus:border-blue-400 font-semibold text-gray-700 bg-white">
+                                        <option disabled value="">请选择基础模型</option>
+                                        <option v-for="model in allBaseModels" :key="model.name" :value="model.name">
+                                            {{ model.name }}{{ model.is_downloaded ? '' : ' ☁' }}
+                                        </option>
+                                    </select>
+                                    <span class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-blue-500 text-xs">▼</span>
+                                </div>
+                                <button
+                                    v-if="selectedBaseModelMeta() && !selectedBaseModelMeta().is_downloaded"
+                                    @click="handleDownloadBaseModel"
+                                    :title="isSelectedBaseModelDownloading() ? '基础模型下载中' : '下载基础模型'"
+                                    :disabled="isSelectedBaseModelDownloading()"
+                                    class="group shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-[1.1rem] border border-sky-200 bg-gradient-to-br from-white to-sky-50 text-sky-600 shadow-sm hover:shadow-md hover:border-sky-300 hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:shadow-none transition">
+                                    <svg v-if="isSelectedBaseModelDownloading()" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <svg v-else class="w-5 h-5 transition-transform duration-200 group-hover:translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v10m0 0l-4-4m4 4l4-4"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 16.5v.5A2.5 2.5 0 007.5 19h9a2.5 2.5 0 002.5-2v-.5"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div v-if="selectedBaseModelMeta()" class="flex items-center gap-2 flex-wrap text-xs">
+                                <span v-if="selectedBaseModelMeta().is_downloaded" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold">
+                                    本地
+                                </span>
+                                <span v-else class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-100 font-bold shadow-sm shadow-sky-100/40">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 18a4 4 0 01-.2-7.995A5.5 5.5 0 0117.5 8a4.5 4.5 0 011.1 8.864"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11v5m0 0l-2-2m2 2l2-2"></path>
+                                    </svg>
+                                    云端
+                                </span>
+                                <span v-if="selectedBaseModelMeta().download_status === 'failed'" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-100 font-bold">
+                                    下载失败
+                                </span>
+                                <span v-else-if="selectedBaseModelMeta().download_status === 'downloading'" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-bold">
+                                    正在下载
+                                </span>
                             </div>
                             <p v-if="baseModelError" class="text-xs text-red-500">{{ baseModelError }}</p>
-                            <p v-else class="text-xs text-gray-500">后端会从 <code>$HOME/whisper-base-models</code> 自动读取可用目录。</p>
+                            <p v-else-if="selectedBaseModelMeta()" class="text-xs text-gray-500">{{ selectedBaseModelStatusText() }}</p>
+                            <p v-else class="text-xs text-gray-500">后端会从 <code>./whisper-base-models</code> 自动读取本地基础模型。</p>
                         </div>
                     </div>
 

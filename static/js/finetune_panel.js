@@ -13,7 +13,9 @@ export default {
         const hasChartData = ref(false); // 控制图表和占位符的切换
         const chartError = ref("");
         const baseModelOptions = ref([]);
+        const allBaseModels = ref([]);
         const baseModelError = ref("");
+        let baseModelPollTimer = null;
 
         // 检查数据集状态（页面刷新后恢复步骤解锁状态）
         const checkDatasetStatus = async () => {
@@ -95,19 +97,107 @@ export default {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 baseModelOptions.value = Array.isArray(data.models) ? data.models : [];
-                if (!baseModelOptions.value.length) {
-                    baseModelError.value = "未找到可用基础模型，请先将模型目录放到 $HOME/whisper-base-models。";
+                allBaseModels.value = Array.isArray(data.all_models) ? data.all_models : [];
+                if (!allBaseModels.value.length) {
+                    baseModelError.value = "未读取到可配置的基础模型列表。";
                     finetuneParams.value.base_model = "";
                     return;
                 }
-                if (!baseModelOptions.value.includes(finetuneParams.value.base_model)) {
-                    finetuneParams.value.base_model = baseModelOptions.value[0];
+
+                const selectedModelStillExists = allBaseModels.value.some(
+                    model => model.name === finetuneParams.value.base_model
+                );
+                if (!selectedModelStillExists) {
+                    finetuneParams.value.base_model = allBaseModels.value[0].name;
+                }
+
+                const downloadedModels = allBaseModels.value.filter(model => model.is_downloaded);
+                const hasDownloadingModel = allBaseModels.value.some(model => model.download_status === 'downloading');
+
+                if (!downloadedModels.length) {
+                    baseModelError.value = hasDownloadingModel
+                        ? "基础模型正在下载中，下载完成后即可开始训练。"
+                        : "当前本地还没有基础模型，可先选择带 ☁ 标记的模型并点击下载。";
+                } else if (!baseModelOptions.value.includes(finetuneParams.value.base_model)) {
+                    baseModelError.value = "当前选择的基础模型尚未下载完成，训练前请先下载。";
+                }
+
+                if (hasDownloadingModel) {
+                    startBaseModelPolling();
+                } else {
+                    stopBaseModelPolling();
                 }
             } catch (err) {
                 console.error("加载基础模型列表失败", err);
                 baseModelError.value = "加载基础模型列表失败，请检查后端服务是否正常。";
                 baseModelOptions.value = [];
+                allBaseModels.value = [];
                 finetuneParams.value.base_model = "";
+                stopBaseModelPolling();
+            }
+        };
+
+        const selectedBaseModelMeta = () => {
+            return allBaseModels.value.find(model => model.name === finetuneParams.value.base_model) || null;
+        };
+
+        const isSelectedBaseModelDownloaded = () => {
+            const selected = selectedBaseModelMeta();
+            return selected ? selected.is_downloaded : false;
+        };
+
+        const isSelectedBaseModelDownloading = () => {
+            const selected = selectedBaseModelMeta();
+            return selected ? selected.download_status === 'downloading' : false;
+        };
+
+        const selectedBaseModelStatusText = () => {
+            const selected = selectedBaseModelMeta();
+            if (!selected) return "";
+            if (selected.is_downloaded) return "本地已就绪，可直接训练。";
+            if (selected.download_status === 'downloading') {
+                return selected.download_message || "正在从云端下载模型...";
+            }
+            if (selected.download_status === 'failed') {
+                return selected.download_message || "上一次下载失败，可重试。";
+            }
+            return "该模型暂未下载，本次训练前需要先拉到本地。";
+        };
+
+        const stopBaseModelPolling = () => {
+            if (baseModelPollTimer) {
+                clearInterval(baseModelPollTimer);
+                baseModelPollTimer = null;
+            }
+        };
+
+        const startBaseModelPolling = () => {
+            if (baseModelPollTimer) return;
+            baseModelPollTimer = setInterval(() => {
+                loadBaseModelOptions();
+            }, 3000);
+        };
+
+        const handleDownloadBaseModel = async () => {
+            const selected = selectedBaseModelMeta();
+            if (!selected || selected.is_downloaded || selected.download_status === 'downloading') {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/base_models/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_name: selected.name })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.detail || '启动下载失败，请稍后重试');
+                    return;
+                }
+                await loadBaseModelOptions();
+            } catch (err) {
+                alert('网络请求失败，无法启动基础模型下载');
             }
         };
 
@@ -365,6 +455,10 @@ export default {
                 alert("请先选择基础模型");
                 return;
             }
+            if (!isSelectedBaseModelDownloaded()) {
+                alert("当前基础模型还未下载到本地，请先点击下载");
+                return;
+            }
             
             isTraining.value = true;
 
@@ -437,6 +531,7 @@ export default {
                     hasChartData.value = false;
                     trainLossData = [];
                     evalLossData = [];
+                    stopBaseModelPolling();
 
                     if (myChart) {
                         myChart.setOption({ series: [{ data: [] }, { data: [] }] });
@@ -461,6 +556,7 @@ export default {
         onUnmounted(() => {
             if (eventSource) eventSource.close();
             if (myChart) myChart.dispose();
+            stopBaseModelPolling();
             window.removeEventListener('resize', handleResize);
         });
 
@@ -475,8 +571,14 @@ export default {
             hasChartData,
             chartError,
             baseModelOptions,
+            allBaseModels,
             baseModelError,
+            selectedBaseModelMeta,
+            isSelectedBaseModelDownloaded,
+            isSelectedBaseModelDownloading,
+            selectedBaseModelStatusText,
             handleBuildDataset,
+            handleDownloadBaseModel,
             handleStartFinetune,
             enforceMinLen,
             enforceMaxLen,

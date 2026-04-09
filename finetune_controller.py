@@ -4,6 +4,7 @@ import asyncio
 import json
 import sqlite3
 import time
+import sys
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
@@ -12,9 +13,20 @@ from shared_state import GPUStatus, GPU_STATE
 router = APIRouter()
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
-BASE_MODELS_DIR = os.path.expanduser(
-    os.environ.get("WHISPER_BASE_MODELS_DIR", "~/whisper-base-models")
-)
+BASE_MODELS_DIR = os.path.join(PROJECT_ROOT, "whisper-base-models")
+DOWNLOAD_SCRIPT_PATH = os.path.join(PROJECT_ROOT, "download_whisper_models.py")
+SUPPORTED_BASE_MODELS = [
+    "whisper-large-v3",
+    "whisper-large-v3-turbo",
+    "whisper-base",
+    "whisper-tiny",
+    "whisper-small",
+    "whisper-medium",
+]
+BASE_MODEL_DOWNLOAD_STATE = {
+    model_name: {"status": "idle", "message": ""}
+    for model_name in SUPPORTED_BASE_MODELS
+}
 
 
 def _is_user_training(username: str) -> bool:
@@ -77,6 +89,62 @@ def _list_base_model_dirs():
         if entry.is_dir():
             models.append(entry.name)
     return sorted(models)
+
+
+def _build_base_model_payload():
+    local_models = set(_list_base_model_dirs())
+    all_models = []
+    for model_name in SUPPORTED_BASE_MODELS:
+        state = BASE_MODEL_DOWNLOAD_STATE.get(model_name, {"status": "idle", "message": ""})
+        all_models.append({
+            "name": model_name,
+            "is_downloaded": model_name in local_models,
+            "download_status": state.get("status", "idle"),
+            "download_message": state.get("message", ""),
+        })
+
+    return {
+        "base_models_dir": BASE_MODELS_DIR,
+        "models": sorted(local_models),
+        "all_models": all_models,
+    }
+
+
+async def _run_base_model_download(model_name: str):
+    cmd = ["python", DOWNLOAD_SCRIPT_PATH, model_name]
+    BASE_MODEL_DOWNLOAD_STATE[model_name] = {
+        "status": "downloading",
+        "message": "正在下载模型文件，请稍候...",
+    }
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=PROJECT_ROOT,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            BASE_MODEL_DOWNLOAD_STATE[model_name] = {
+                "status": "completed",
+                "message": "模型下载完成",
+            }
+            print(f"[base-model-download] {model_name} 下载完成")
+        else:
+            error_message = stderr.decode("utf-8", errors="ignore").strip() or stdout.decode("utf-8", errors="ignore").strip()
+            BASE_MODEL_DOWNLOAD_STATE[model_name] = {
+                "status": "failed",
+                "message": error_message or "模型下载失败",
+            }
+            print(f"[base-model-download] {model_name} 下载失败: {error_message}")
+    except Exception as e:
+        BASE_MODEL_DOWNLOAD_STATE[model_name] = {
+            "status": "failed",
+            "message": str(e),
+        }
+        print(f"[base-model-download] {model_name} 下载异常: {e}")
 
 
 async def run_finetune_process(req: FinetuneRequest):
@@ -178,11 +246,33 @@ async def start_finetune(req: FinetuneRequest, background_tasks: BackgroundTasks
 
 @router.get("/api/base_models")
 async def get_base_models():
-    models = _list_base_model_dirs()
-    return {
-        "base_models_dir": BASE_MODELS_DIR,
-        "models": models
-    }
+    return _build_base_model_payload()
+
+
+class BaseModelDownloadRequest(BaseModel):
+    model_name: str = Field(..., min_length=1, description="要下载的基础模型名称")
+
+
+@router.post("/api/base_models/download")
+async def download_base_model(req: BaseModelDownloadRequest):
+    model_name = req.model_name.strip()
+    if model_name not in SUPPORTED_BASE_MODELS:
+        raise HTTPException(status_code=400, detail=f"不支持的基础模型: {model_name}")
+
+    local_models = set(_list_base_model_dirs())
+    if model_name in local_models:
+        BASE_MODEL_DOWNLOAD_STATE[model_name] = {
+            "status": "completed",
+            "message": "模型已存在于本地目录",
+        }
+        return {"message": f"{model_name} 已存在，无需重复下载"}
+
+    current_state = BASE_MODEL_DOWNLOAD_STATE.get(model_name, {})
+    if current_state.get("status") == "downloading":
+        raise HTTPException(status_code=409, detail=f"{model_name} 正在下载中，请稍后刷新")
+
+    asyncio.create_task(_run_base_model_download(model_name))
+    return {"message": f"{model_name} 下载任务已启动"}
 
 @router.get("/api/gpu_status")
 async def get_gpu_status():

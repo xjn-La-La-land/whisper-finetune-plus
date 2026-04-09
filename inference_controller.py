@@ -14,11 +14,8 @@ from shared_state import GPUStatus, GPU_STATE, INFERENCE_CACHE
 
 router = APIRouter()
 
-# 基础模型目录（与微调面板保持一致）
-BASE_MODELS_DIR = os.path.expanduser(
-    os.environ.get("WHISPER_BASE_MODELS_DIR", "~/whisper-base-models")
-)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+BASE_MODELS_DIR = os.path.join(PROJECT_ROOT, "whisper-base-models")
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
 
 DEFAULT_BATCH_SIZE = 16
