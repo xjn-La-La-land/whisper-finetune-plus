@@ -107,13 +107,24 @@ export default {
         const uploadAudio = async (taskId, audioBlob) => {
             const formData = new FormData();
             formData.append("audio", audioBlob, "record.webm");
+            let uploadSucceeded = false;
             try {
-                await fetch(`/api/upload_audio/${taskId}?username=${encodeURIComponent(props.currentUser)}`, { method: 'POST', body: formData });
+                const response = await fetch(`/api/upload_audio/${taskId}?username=${encodeURIComponent(props.currentUser)}`, { method: 'POST', body: formData });
+                if (!response.ok) throw new Error(`Upload failed with status ${response.status}`);
+                uploadSucceeded = true;
             } catch (e) {
                 alert("保存失败！");
             } finally {
                 processingTaskId.value = null;
-                fetchTasks();
+                await fetchTasks();
+
+                // 仅在沉浸式模式中生效：当前任务上传成功后，自动切换到下一条任务
+                if (uploadSucceeded && focusedTaskIndex.value !== null) {
+                    const currentIndex = tasks.value.findIndex(task => task.id === taskId);
+                    if (currentIndex !== -1 && focusedTaskIndex.value === currentIndex && currentIndex < tasks.value.length - 1) {
+                        focusedTaskIndex.value = currentIndex + 1;
+                    }
+                }
             }
         };
 
