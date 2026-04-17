@@ -17,6 +17,11 @@ export default {
         const baseModelError = ref("");
         let baseModelPollTimer = null;
 
+        // --- 发布弹窗状态 ---
+        const showPublishModal = ref(false);
+        const lastTrainedModelName = ref("");
+        const isPublishing = ref(false);
+
         // 检查数据集状态（页面刷新后恢复步骤解锁状态）
         const checkDatasetStatus = async () => {
             if (!props.currentUser) return;
@@ -378,7 +383,10 @@ export default {
                     isTraining.value = false;
                     eventSource.close();
                     eventSource = null;
-                    alert("🎉 恭喜！模型专属微调已成功完成！");
+                    
+                    // 记录刚训练好的模型名称并弹出发布框
+                    lastTrainedModelName.value = finetuneParams.value.model_name;
+                    showPublishModal.value = true;
                     return;
                 }
 
@@ -560,6 +568,37 @@ export default {
             window.removeEventListener('resize', handleResize);
         });
 
+        // --- 动作：正式发布模型 ---
+        const handlePublishModel = async () => {
+            if (!lastTrainedModelName.value) return;
+            isPublishing.value = true;
+            try {
+                const response = await fetch('/api/publish_model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        username: props.currentUser, 
+                        model_name: lastTrainedModelName.value 
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    alert('🚀 发布成功！客户端现在可以检测到更新了。');
+                    showPublishModal.value = false;
+                } else {
+                    alert('❌ 发布失败: ' + data.detail);
+                }
+            } catch (e) {
+                alert('❌ 网络请求失败，无法发布模型');
+            } finally {
+                isPublishing.value = false;
+            }
+        };
+
+        const closePublishModal = () => {
+            showPublishModal.value = false;
+        };
+
         return {
             chartRef,
             datasetParams,
@@ -582,6 +621,12 @@ export default {
             handleStartFinetune,
             enforceMinLen,
             enforceMaxLen,
+            showPublishModal,
+            lastTrainedModelName,
+            isPublishing,
+            handlePublishModel,
+            closePublishModal
         };
+
     }
 }

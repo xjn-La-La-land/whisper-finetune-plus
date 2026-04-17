@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>语音采集与微调控制台</title>
+    <title>语音采集与微调控制台 v1.1-Release</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -478,7 +478,26 @@
                 </div>
             </div>
 
-
+            <!-- --- 新增：发布模型确认弹窗 --- -->
+            <div v-if="showPublishModal" class="fixed inset-0 z-[100] flex items-center justify-center">
+                <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="closePublishModal"></div>
+                <div class="relative z-10 w-full max-w-md mx-4 bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-10 border border-blue-50 text-center transform transition-all scale-100 animate-in zoom-in duration-300">
+                    <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <h3 class="text-2xl font-extrabold text-gray-800 mb-3">微调训练已完成！</h3>
+                    <p class="text-gray-500 mb-8 leading-relaxed text-sm">
+                        模型 <span class="text-blue-600 font-bold">"{{ lastTrainedModelName }}"</span> 及其 TFLite 版本已准备就绪。是否立即将其发布为正式版？发布后，手机端将能同步更新。
+                    </p>
+                    <div class="flex flex-col gap-3">
+                        <button @click="handlePublishModel" :disabled="isPublishing" class="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-extrabold text-lg py-4 rounded-2xl shadow-lg shadow-blue-500/30 transition transform hover:-translate-y-1 active:translate-y-0 flex items-center justify-center gap-2">
+                            <svg v-if="isPublishing" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            {{ isPublishing ? '正在发布...' : '🚀 立即发布' }}
+                        </button>
+                        <button @click="closePublishModal" class="w-full bg-white text-gray-400 border border-gray-100 hover:bg-gray-50 font-bold py-3 rounded-2xl transition">以后再说</button>
+                    </div>
+                </div>
+            </div>
 
         </div>
     </template>
@@ -566,16 +585,23 @@
                                         {{ baseModel }} (base)
                                     </option>
                                     <option v-for="model in modelOptions" :key="`finetuned-${model.model_name}`" :value="model.model_name">
-                                        {{ model.model_name }} (finetuned)
+                                        {{ model.is_published ? '⭐ ' : '' }}{{ model.model_name }} (finetuned)
                                     </option>
                                 </select>
                                 <span class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-blue-500 text-xs">▼</span>
                             </div>
-                            <span v-if="params.selected_model"
-                                  class="text-[10px] font-bold uppercase px-2 py-1 rounded-full w-fit"
-                                  :class="selectedModelTag() === 'base' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'">
-                                {{ selectedModelTag() }}
-                            </span>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span v-if="params.selected_model"
+                                    class="text-[10px] font-bold uppercase px-2 py-1 rounded-full w-fit"
+                                    :class="selectedModelTag() === 'base' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'">
+                                    {{ selectedModelTag() }}
+                                </span>
+                                <button v-if="selectedModelTag() === 'finetuned'" 
+                                        @click="publishModel(params.selected_model)"
+                                        class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition">
+                                    🚀 发布为正式版
+                                </button>
+                            </div>
                         </div>
 
                         <div class="flex flex-col gap-2">
@@ -624,6 +650,6 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/app.js?v=1.1"></script>
 </body>
 </html>

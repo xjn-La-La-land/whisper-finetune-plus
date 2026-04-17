@@ -217,13 +217,24 @@ def main():
         callbacks.append(WebMonitorCallback(args.web_log_path))
 
     # 定义训练器
-    trainer = Seq2SeqTrainer(args=training_args,
-                             model=model,
-                             train_dataset=train_dataset,
-                             eval_dataset=test_dataset,
-                             data_collator=data_collator,
-                             processing_class=processor.feature_extractor,
-                             callbacks=callbacks)
+    # trainer = Seq2SeqTrainer(args=training_args,
+    #                          model=model,
+    #                          train_dataset=train_dataset,
+    #                          eval_dataset=test_dataset,
+    #                          data_collator=data_collator,
+    #                          processing_class=processor.feature_extractor,
+    #                          callbacks=callbacks)
+    # transformer 4.42.1 不支持 processing_class，修改为tokenizer
+    trainer = Seq2SeqTrainer(
+        args=training_args,
+        model=model,
+        train_dataset=train_dataset,
+        eval_dataset=test_dataset,
+        data_collator=data_collator,
+        # 将 processing_class 改为 tokenizer
+        tokenizer=processor.feature_extractor, 
+        callbacks=callbacks
+    )
     model.config.use_cache = False
     trainer._load_from_checkpoint = load_from_checkpoint
 

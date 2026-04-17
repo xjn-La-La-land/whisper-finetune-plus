@@ -44,13 +44,13 @@ def resolve_base_model_paths():
 
 
 def resolve_user_model_path(username: str):
-    """从数据库查询用户所有可用微调模型。"""
+    """从数据库查询用户所有可用微调模型，并返回发布状态。"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     c.execute(
         '''
-        SELECT model_name
+        SELECT model_name, is_published, version_tag
         FROM models
         WHERE username = ?
         ORDER BY updated_at DESC, id DESC
@@ -62,11 +62,18 @@ def resolve_user_model_path(username: str):
 
     valid_models = []
     for row in rows:
-        model_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "checkpoint-final")
-        if os.path.exists(model_path):
+        # 推理使用的 PyTorch Checkpoint 路径
+        checkpoint_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "checkpoint-final")
+        # 客户端同步使用的 TFLite 路径
+        tflite_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "whisper_model.tflite")
+        
+        if os.path.exists(checkpoint_path):
             valid_models.append({
                 "model_name": row["model_name"],
-                "model_path": model_path
+                "model_path": checkpoint_path,
+                "is_published": bool(row["is_published"]),
+                "version_tag": row["version_tag"],
+                "has_tflite": os.path.exists(tflite_path)
             })
     return valid_models
 
@@ -74,6 +81,67 @@ def resolve_user_model_path(username: str):
 @router.get("/api/user_models")
 async def get_user_models(username: str):
     return {"models": resolve_user_model_path(username)}
+
+
+@router.get("/api/latest_model_info")
+async def get_latest_model_info(username: str):
+    """供客户端轮询：获取当前发布的最新模型信息"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'SELECT model_name, version_tag FROM models WHERE username = ? AND is_published = 1 LIMIT 1',
+        (username,)
+    )
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        return {"has_published": False}
+
+    model_name, version_tag = row
+    tflite_path = os.path.join(PROJECT_ROOT, "output", username, model_name, "whisper_model.tflite")
+    
+    if not os.path.exists(tflite_path):
+        return {"has_published": False}
+        
+    file_size = os.path.getsize(tflite_path)
+
+    return {
+        "has_published": True,
+        "model_name": model_name,
+        "version_tag": version_tag,
+        "file_size": file_size
+    }
+
+
+from fastapi.responses import FileResponse
+
+@router.get("/api/download_published_model")
+async def download_published_model(username: str):
+    """供客户端调用：下载已发布的 TFLite 模型文件"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'SELECT model_name FROM models WHERE username = ? AND is_published = 1 LIMIT 1',
+        (username,)
+    )
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="该用户尚未发布任何模型")
+
+    model_name = row[0]
+    tflite_path = os.path.join(PROJECT_ROOT, "output", username, model_name, "whisper_model.tflite")
+    
+    if not os.path.exists(tflite_path):
+        raise HTTPException(status_code=404, detail="已发布的 TFLite 模型文件不存在")
+
+    return FileResponse(
+        path=tflite_path,
+        filename=f"whisper_{model_name}.tflite",
+        media_type="application/octet-stream"
+    )
 
 
 def load_model_to_gpu(model_path: str):

@@ -1,9 +1,9 @@
 const { createApp, ref, onMounted } = Vue;
 
-import CustomAudio from './custom_audio.js';
-import AudioCollector from './audio_collector.js';
-import FinetunePanel from './finetune_panel.js';
-import InferencePanel from './inference_panel.js';
+import CustomAudio from './custom_audio.js?v=1.1';
+import AudioCollector from './audio_collector.js?v=1.1';
+import FinetunePanel from './finetune_panel.js?v=1.1';
+import InferencePanel from './inference_panel.js?v=1.1';
 
 const app = createApp({
     setup() {

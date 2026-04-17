@@ -51,9 +51,19 @@ def init_db():
             model_name TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
+            is_published INTEGER DEFAULT 0,
+            version_tag TEXT,
             UNIQUE(username, model_name)
         )
     ''')
+    # 自动升级逻辑
+    c.execute("PRAGMA table_info(models)")
+    model_columns = {row[1] for row in c.fetchall()}
+    if "is_published" not in model_columns:
+        c.execute('ALTER TABLE models ADD COLUMN is_published INTEGER DEFAULT 0')
+    if "version_tag" not in model_columns:
+        c.execute('ALTER TABLE models ADD COLUMN version_tag TEXT')
+    
     conn.commit()
     conn.close()
 

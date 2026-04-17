@@ -80,6 +80,10 @@ class FinetuneRequest(BaseModel):
     max_audio_len: float = Field(default=30.0, le=30.0, description="最大音频长度(秒)")
     base_model: str = Field(..., min_length=1, description="Whisper 基础模型目录名")
 
+class PublishModelRequest(BaseModel):
+    username: str
+    model_name: str
+
 
 def _list_base_model_dirs():
     if not os.path.isdir(BASE_MODELS_DIR):
@@ -199,6 +203,28 @@ async def run_finetune_process(req: FinetuneRequest):
             print(f"[{req.username}] 微调成功！")
             if os.path.exists(output_dir):
                 _upsert_user_model(req.username, req.model_name)
+                
+                # --- 新增：自动导出 TFLite ---
+                try:
+                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+                    from tflite_export import run_tflite_export
+                    tflite_output = os.path.join(output_dir, "whisper_model.tflite")
+                    checkpoint_final = os.path.join(output_dir, "checkpoint-final")
+                    
+                    print(f"[{req.username}] 正在自动将模型转换为 TFLite 格式...")
+                    # 调用之前封装好的函数
+                    success, msg = run_tflite_export(
+                        base_model_path=base_model_path,
+                        checkpoint_path=checkpoint_final,
+                        output_tflite_path=tflite_output
+                    )
+                    if success:
+                        print(f"[{req.username}] TFLite 自动导出完成：{tflite_output}")
+                    else:
+                        print(f"[{req.username}] TFLite 自动导出失败：{msg}")
+                except Exception as ex:
+                    print(f"[{req.username}] TFLite 导出过程中出现异常: {ex}")
+                # -----------------------------
             else:
                 print(f"[{req.username}] 警告：未找到模型输出目录，无法写入模型记录")
         else:
@@ -386,6 +412,36 @@ async def get_train_history(username: str):
         "train_loss": train_loss,
         "eval_loss": eval_loss
     }
+
+
+@router.post("/api/publish_model")
+async def publish_model(req: PublishModelRequest):
+    # 检查 TFLite 模型文件是否存在
+    tflite_path = os.path.join(PROJECT_ROOT, "output", req.username, req.model_name, "whisper_model.tflite")
+    if not os.path.exists(tflite_path):
+        raise HTTPException(status_code=400, detail="该模型尚未生成 TFLite 文件，无法发布")
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # 1. 将该用户的所有模型设为未发布
+    c.execute('UPDATE models SET is_published = 0 WHERE username = ?', (req.username,))
+    
+    # 2. 将选中的模型设为发布状态，并更新版本号 (以时间戳为例)
+    version_tag = str(int(time.time()))
+    c.execute(
+        'UPDATE models SET is_published = 1, version_tag = ? WHERE username = ? AND model_name = ?',
+        (version_tag, req.username, req.model_name)
+    )
+    
+    if c.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="未找到对应的模型记录")
+        
+    conn.commit()
+    conn.close()
+    
+    return {"message": "模型发布成功", "version_tag": version_tag}
 
 
 # 模型检查
