@@ -13,3 +13,4 @@ transformers
 zhconv
 uvicorn
 python-multipart
+modelscope

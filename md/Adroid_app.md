@@ -2,6 +2,9 @@
 ```bash
 conda env create -f env.yaml
 conda activate asr
+# 配置远程 modelscope 仓库
+export MODELSCOPE_TOKEN=ms-3a7e679e-994b-4a73-a5ad-c7df48405f9a
+export MODELSCOPE_REPO=hanxiaofeng218/CareSpeech-ASR
 ```
 
 ## 启动服务

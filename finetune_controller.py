@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
 from shared_state import GPUStatus, GPU_STATE
 
+# 尝试导入 modelscope
+try:
+    from modelscope.hub.api import HubApi
+except ImportError:
+    HubApi = None
+
 router = APIRouter()
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
@@ -421,14 +427,63 @@ async def publish_model(req: PublishModelRequest):
     if not os.path.exists(tflite_path):
         raise HTTPException(status_code=400, detail="该模型尚未生成 TFLite 文件，无法发布")
 
+    # 生成版本号 (以当前时间戳为例)
+    version_tag = str(int(time.time()))
+
+    # --- 同步上传至 ModelScope ---
+    ms_token = os.environ.get("MODELSCOPE_TOKEN")
+    ms_repo = os.environ.get("MODELSCOPE_REPO")
+
+    if not HubApi:
+        raise HTTPException(status_code=500, detail="环境未安装 modelscope SDK，请先安装：pip install modelscope")
+
+    if not ms_token or not ms_repo:
+        raise HTTPException(
+            status_code=400, 
+            detail="缺少 ModelScope 配置。请设置环境变量 MODELSCOPE_TOKEN 和 MODELSCOPE_REPO"
+        )
+
+    try:
+        api = HubApi()
+        # login 是同步的，很快
+        api.login(ms_token)
+        
+        # 1. 同步 TFLite 模型
+        path_in_repo = f"{req.username}/whisper_model.tflite"
+        print(f"[{req.username}] 正在同步模型到 ModelScope 仓库: {ms_repo} ...")
+        await asyncio.to_thread(
+            api.upload_file,
+            path_or_fileobj=tflite_path,
+            repo_id=ms_repo,
+            path_in_repo=path_in_repo
+        )
+        print(f"[{req.username}] ModelScope 模型同步成功: {path_in_repo}")
+
+        # 2. 同时生成并同步 version.json
+        version_json_path = os.path.join(PROJECT_ROOT, "output", req.username, req.model_name, "version.json")
+        with open(version_json_path, "w") as f:
+            json.dump({"version_tag": version_tag}, f, indent=2)
+        
+        await asyncio.to_thread(
+            api.upload_file,
+            path_or_fileobj=version_json_path,
+            repo_id=ms_repo,
+            path_in_repo=f"{req.username}/version.json"
+        )
+        print(f"[{req.username}] ModelScope version.json 同步成功: {req.username}/version.json")
+        
+    except Exception as e:
+        print(f"[{req.username}] ModelScope 同步失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"同步至 ModelScope 失败: {str(e)}")
+    # ----------------------------------
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     # 1. 将该用户的所有模型设为未发布
     c.execute('UPDATE models SET is_published = 0 WHERE username = ?', (req.username,))
     
-    # 2. 将选中的模型设为发布状态，并更新版本号 (以时间戳为例)
-    version_tag = str(int(time.time()))
+    # 2. 将选中的模型设为发布状态，并更新版本号
     c.execute(
         'UPDATE models SET is_published = 1, version_tag = ? WHERE username = ? AND model_name = ?',
         (version_tag, req.username, req.model_name)
@@ -441,7 +496,11 @@ async def publish_model(req: PublishModelRequest):
     conn.commit()
     conn.close()
     
-    return {"message": "模型发布成功", "version_tag": version_tag}
+    return {
+        "message": "模型发布并同步至 ModelScope 成功", 
+        "version_tag": version_tag,
+        "repo_path": f"{ms_repo}/{req.username}"
+    }
 
 
 # 模型检查
