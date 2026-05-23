@@ -4,13 +4,16 @@ import gc
 import json
 import sqlite3
 import torch
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from peft import PeftModel
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from zhconv import convert
 from utils.data_utils import remove_punctuation
+from utils.db import get_db
+from utils.auth import get_current_user
 
-from shared_state import GPUStatus, GPU_STATE, INFERENCE_CACHE
+from shared_state import GPUStatus, GPU_STATE, GPU_LOCK, INFERENCE_CACHE
 
 router = APIRouter()
 
@@ -19,6 +22,30 @@ BASE_MODELS_DIR = os.path.join(PROJECT_ROOT, "whisper-base-models")
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "tasks.db")
 
 DEFAULT_BATCH_SIZE = 16
+
+
+def _detect_attn_implementation() -> str:
+    """根据环境自动选择最优的 attention 实现。
+
+    优先级：
+      1. flash_attention_2 —— 最快，但需要 `pip install flash-attn`（建议 GPU 是
+         Ampere/Ada/Hopper，对 Blackwell 等新架构需要 flash-attn 2.7+）
+      2. sdpa —— PyTorch 2.x 内置的 scaled_dot_product_attention，所有主流
+         GPU 都原生支持，性能比朴素 eager 快很多，比 flash-attn 慢 10~20%
+      3. eager —— 朴素实现，仅作兜底
+
+    选 SDPA 是默认安全路径：零依赖、跨架构、跨 CUDA 版本都能跑。
+    """
+    try:
+        import flash_attn  # noqa: F401
+        return "flash_attention_2"
+    except ImportError:
+        return "sdpa"
+
+
+# 模块加载时确定一次即可——切换需要重启服务
+ATTN_IMPLEMENTATION = _detect_attn_implementation()
+print(f"[inference] 使用 attention 实现: {ATTN_IMPLEMENTATION}")
 
 
 def resolve_lora_base_model_path(model_path: str):
@@ -43,22 +70,19 @@ def resolve_base_model_paths():
     return models
 
 
-def resolve_user_model_path(username: str):
+async def resolve_user_model_path(username: str):
     """从数据库查询用户所有可用微调模型，并返回发布状态。"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute(
-        '''
-        SELECT model_name, is_published, version_tag
-        FROM models
-        WHERE username = ?
-        ORDER BY updated_at DESC, id DESC
-        ''',
-        (username,)
-    )
-    rows = [dict(row) for row in c.fetchall()]
-    conn.close()
+    async with get_db(row_factory=sqlite3.Row) as conn:
+        cursor = await conn.execute(
+            '''
+            SELECT model_name, is_published, version_tag
+            FROM models
+            WHERE username = ?
+            ORDER BY updated_at DESC, id DESC
+            ''',
+            (username,)
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
 
     valid_models = []
     for row in rows:
@@ -79,27 +103,25 @@ def resolve_user_model_path(username: str):
 
 
 @router.get("/api/user_models")
-async def get_user_models(username: str):
-    return {"models": resolve_user_model_path(username)}
+async def get_user_models(current_user: str = Depends(get_current_user)):
+    return {"models": await resolve_user_model_path(current_user)}
 
 
 @router.get("/api/latest_model_info")
-async def get_latest_model_info(username: str):
+async def get_latest_model_info(current_user: str = Depends(get_current_user)):
     """供客户端轮询：获取当前发布的最新模型信息"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        'SELECT model_name, version_tag FROM models WHERE username = ? AND is_published = 1 LIMIT 1',
-        (username,)
-    )
-    row = c.fetchone()
-    conn.close()
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT model_name, version_tag FROM models WHERE username = ? AND is_published = 1 LIMIT 1',
+            (current_user,)
+        )
+        row = await cursor.fetchone()
 
     if not row:
         return {"has_published": False}
 
     model_name, version_tag = row
-    tflite_path = os.path.join(PROJECT_ROOT, "output", username, model_name, "whisper_model.tflite")
+    tflite_path = os.path.join(PROJECT_ROOT, "output", current_user, model_name, "whisper_model.tflite")
     
     if not os.path.exists(tflite_path):
         return {"has_published": False}
@@ -114,25 +136,21 @@ async def get_latest_model_info(username: str):
     }
 
 
-from fastapi.responses import FileResponse
-
 @router.get("/api/download_published_model")
-async def download_published_model(username: str):
+async def download_published_model(current_user: str = Depends(get_current_user)):
     """供客户端调用：下载已发布的 TFLite 模型文件"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        'SELECT model_name FROM models WHERE username = ? AND is_published = 1 LIMIT 1',
-        (username,)
-    )
-    row = c.fetchone()
-    conn.close()
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT model_name FROM models WHERE username = ? AND is_published = 1 LIMIT 1',
+            (current_user,)
+        )
+        row = await cursor.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="该用户尚未发布任何模型")
 
     model_name = row[0]
-    tflite_path = os.path.join(PROJECT_ROOT, "output", username, model_name, "whisper_model.tflite")
+    tflite_path = os.path.join(PROJECT_ROOT, "output", current_user, model_name, "whisper_model.tflite")
     
     if not os.path.exists(tflite_path):
         raise HTTPException(status_code=404, detail="已发布的 TFLite 模型文件不存在")
@@ -178,7 +196,10 @@ def load_model_to_gpu(model_path: str):
         torch_dtype=torch_dtype,
         low_cpu_mem_usage=True,
         use_safetensors=True,
-        use_flash_attention_2=True
+        # 新版 transformers 用 attn_implementation 取代 use_flash_attention_2 旧参数
+        # ATTN_IMPLEMENTATION 在模块加载时自动检测：有 flash_attn 就用 flash_attention_2，
+        # 否则 fallback 到 PyTorch 内置的 sdpa（零依赖、跨架构）
+        attn_implementation=ATTN_IMPLEMENTATION,
     )
 
     if lora_model_path:
@@ -214,56 +235,54 @@ def load_model_to_gpu(model_path: str):
 
 @router.post("/api/recognition")
 async def api_recognition(
-    username: str = Form(...),
     to_simple: int = Form(1),
     remove_pun: int = Form(0),
     num_beams: int = Form(1),
     model_name: str = Form("whisper-large-v3"),
-    audio: UploadFile = File(...)
+    audio: UploadFile = File(...),
+    current_user: str = Depends(get_current_user),
 ):
-    # 1. 检查 GPU 状态 (如果是训练，直接拒绝)
-    if GPU_STATE["status"] == GPUStatus.TRAINING:
-        raise HTTPException(status_code=423, detail="GPU 正在进行训练任务，请稍后再试！")
-    
-    # 2. 确定目标模型路径（支持基础模型与用户微调模型）
-    user_models = resolve_user_model_path(username)
+    username = current_user
+    # 1. 解析目标模型路径（无需 GPU 锁，纯查表）
+    user_models = await resolve_user_model_path(username)
     user_model_by_name = {m["model_name"]: m for m in user_models}
     base_models = resolve_base_model_paths()
-    selected_model = None
     selected_type = None
 
     if model_name in user_model_by_name:
-        selected_model = user_model_by_name[model_name]
-        target_model_path = selected_model["model_path"]
+        target_model_path = user_model_by_name[model_name]["model_path"]
         selected_type = "finetuned"
     elif model_name in base_models:
         target_model_path = base_models[model_name]
         selected_type = "base"
     else:
         raise HTTPException(status_code=400, detail="未找到指定模型，请重新选择")
-    
-    # 3. 动态热插拔：如果显存里的模型不是我们想要的，就重新加载
-    if INFERENCE_CACHE["loaded_model_path"] != target_model_path:
-        # 修改状态，防止加载时被别人打断
+
+    # 2. 原子化检查 + 上锁：只在锁内做状态转移，加载/推理放到锁外执行
+    async with GPU_LOCK:
+        if GPU_STATE["status"] != GPUStatus.IDLE:
+            raise HTTPException(
+                status_code=423,
+                detail=f"GPU 正被用户 [{GPU_STATE['current_user']}] {GPU_STATE['status']} 占用，请稍后再试！"
+            )
         GPU_STATE["status"] = GPUStatus.INFERENCING
         GPU_STATE["current_user"] = username
-        try:
-            load_model_to_gpu(target_model_path)
-        except Exception as e:
-            GPU_STATE["status"] = GPUStatus.IDLE
-            GPU_STATE["current_user"] = None
-            raise HTTPException(status_code=500, detail=f"模型加载失败: {str(e)}")
 
-    # 4. 执行推理
-    GPU_STATE["status"] = GPUStatus.INFERENCING
-    GPU_STATE["current_user"] = username
+    # 3. 锁外执行实际工作 (热插拔 + 推理)。无论成功失败都要在 finally 释放状态。
     try:
+        # 动态热插拔：如果显存里的模型不是我们想要的，就重新加载
+        if INFERENCE_CACHE["loaded_model_path"] != target_model_path:
+            try:
+                load_model_to_gpu(target_model_path)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"模型加载失败: {str(e)}")
+
         data = await audio.read()
         generate_kwargs = {"task": "transcribe", "num_beams": num_beams, "language": "chinese"}
-        
+
         result = INFERENCE_CACHE["pipeline"](data, return_timestamps=True, generate_kwargs=generate_kwargs)
         print("RAW RESULT =", result)
-        
+
         results = []
         chunks = result.get("chunks", [])
         for chunk in chunks:
@@ -277,7 +296,7 @@ async def api_recognition(
                 "start": chunk["timestamp"][0],
                 "end": chunk["timestamp"][1]
             })
-            
+
         return {
             "code": 0,
             "results": results,
@@ -285,6 +304,7 @@ async def api_recognition(
             "used_model_type": selected_type
         }
     finally:
-        # 推理结束后释放 GPU 锁（仅释放状态，不卸载模型）
-        GPU_STATE["status"] = GPUStatus.IDLE
-        GPU_STATE["current_user"] = None
+        # 推理结束 / 异常退出，都要释放 GPU 状态（不卸载模型，仅置回 IDLE）
+        async with GPU_LOCK:
+            GPU_STATE["status"] = GPUStatus.IDLE
+            GPU_STATE["current_user"] = None

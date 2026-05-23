@@ -1,5 +1,8 @@
 aiofiles
+aiosqlite
+bcrypt
 bitsandbytes
+python-jose[cryptography]
 evaluate
 fastapi
 librosa

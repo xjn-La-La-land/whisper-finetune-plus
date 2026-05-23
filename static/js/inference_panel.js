@@ -1,4 +1,6 @@
 const { ref, onMounted, nextTick, watch } = Vue;
+import * as dialog from './dialog.js?v=1.1';
+import { apiFetch } from './api.js?v=1.1';
 
 export default {
     template: '#tpl-inference-panel',
@@ -97,8 +99,8 @@ export default {
             if (!props.currentUser) return;
             try {
                 const [userModelsRes, baseModelsRes] = await Promise.all([
-                    fetch(`/api/user_models?username=${encodeURIComponent(props.currentUser)}`),
-                    fetch('/api/base_models', { cache: 'no-store' })
+                    apiFetch('/api/user_models'),
+                    apiFetch('/api/base_models', { cache: 'no-store' })
                 ]);
                 const userModelsData = await userModelsRes.json();
                 const baseModelsData = await baseModelsRes.json();
@@ -115,7 +117,7 @@ export default {
 
         const sendAudioToBackend = async (audioBlob) => {
             if (!params.value.selected_model) {
-                alert("请先选择一个可用模型");
+                dialog.alert("请先选择一个可用模型", { variant: 'warning' });
                 return;
             }
             isProcessing.value = true;
@@ -126,16 +128,16 @@ export default {
 
             await typeStatus("🎵 音频已捕获，正在发送至 GPU 节点...", "system");
 
+            // username 由后端从 JWT 提取，不再放在 formData 里
             const formData = new FormData();
             formData.append("audio", audioBlob, "infer.wav");
-            formData.append("username", props.currentUser);
             formData.append("to_simple", params.value.to_simple ? 1 : 0);
             formData.append("remove_pun", params.value.remove_pun ? 1 : 0);
             formData.append("num_beams", params.value.num_beams);
             formData.append("model_name", params.value.selected_model);
 
             try {
-                const res = await fetch('/api/recognition', { method: 'POST', body: formData });
+                const res = await apiFetch('/api/recognition', { method: 'POST', body: formData });
                 if (!res.ok) {
                     const err = await res.json();
                     await typeStatus(`❌ 错误: ${err.detail}`, "error");
@@ -205,7 +207,7 @@ export default {
                     mediaRecorder.start();
                     isRecording.value = true;
                 } catch (e) {
-                    alert("无法访问麦克风，请检查权限！");
+                    dialog.alert("无法访问麦克风，请检查权限！", { variant: 'danger' });
                 }
             }
         };
@@ -218,7 +220,7 @@ export default {
                     if (copiedItemId.value === item.id) copiedItemId.value = null;
                 }, 1200);
             } catch (e) {
-                alert("复制失败，请检查浏览器权限");
+                dialog.alert("复制失败，请检查浏览器权限", { variant: 'warning' });
             }
         };
 

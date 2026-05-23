@@ -7,7 +7,11 @@ import subprocess
 import time
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi import Depends
+from pydantic import BaseModel, Field
+
+from utils.db import get_db, get_db_sync
+from utils.auth import hash_password, verify_password, create_access_token, get_current_user
 
 # 1. 实例化 Router
 router = APIRouter()
@@ -21,67 +25,95 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 3. 数据库初始化和辅助函数
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            text_content TEXT NOT NULL,
-            audio_path TEXT,
-            is_completed BOOLEAN DEFAULT 0,
-            updated_at INTEGER
-        )
-    ''')
-    c.execute("PRAGMA table_info(tasks)")
-    task_columns = {row[1] for row in c.fetchall()}
-    if "updated_at" not in task_columns:
-        c.execute('ALTER TABLE tasks ADD COLUMN updated_at INTEGER')
-    # 新增：users 表，用于记录已注册的代号
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY
-        )
-    ''')
-    # 用户微调模型表：仅记录用户名与模型名，路径统一约定为 output/{username}/{model_name}
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS models (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            model_name TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            is_published INTEGER DEFAULT 0,
-            version_tag TEXT,
-            UNIQUE(username, model_name)
-        )
-    ''')
-    # 自动升级逻辑
-    c.execute("PRAGMA table_info(models)")
-    model_columns = {row[1] for row in c.fetchall()}
-    if "is_published" not in model_columns:
-        c.execute('ALTER TABLE models ADD COLUMN is_published INTEGER DEFAULT 0')
-    if "version_tag" not in model_columns:
-        c.execute('ALTER TABLE models ADD COLUMN version_tag TEXT')
-    
-    conn.commit()
-    conn.close()
+    # 在模块 import 时同步调用，没有 event loop，使用同步版
+    with get_db_sync() as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                text_content TEXT NOT NULL,
+                audio_path TEXT,
+                is_completed BOOLEAN DEFAULT 0,
+                updated_at INTEGER
+            )
+        ''')
+        c.execute("PRAGMA table_info(tasks)")
+        task_columns = {row[1] for row in c.fetchall()}
+        if "updated_at" not in task_columns:
+            c.execute('ALTER TABLE tasks ADD COLUMN updated_at INTEGER')
+        # users 表：username + bcrypt 哈希过的密码
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password_hash TEXT,
+                created_at INTEGER,
+                last_login_at INTEGER
+            )
+        ''')
+
+        # --- users 表迁移逻辑 ---
+        # P0-1 引入密码认证。如果 users 表是旧 schema（无 password_hash 列），
+        # 升级时把旧用户行全部删除：旧行没有密码，让原用户走注册流程重新设密码。
+        # tasks 表里的 username 字段不动，重新注册同名后即可恢复对原 tasks 的访问。
+        c.execute("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in c.fetchall()}
+        if "password_hash" not in user_columns:
+            # 这是从旧 schema 升级而来：先添加列，再清空旧数据
+            c.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
+            c.execute('ALTER TABLE users ADD COLUMN created_at INTEGER')
+            c.execute('ALTER TABLE users ADD COLUMN last_login_at INTEGER')
+            c.execute('DELETE FROM users')
+            print("⚠️  [init_db] 检测到旧版无密码的 users 表，已清空。原用户需重新注册同名账号以恢复 tasks 访问。")
+        else:
+            # 已经是新 schema，可能后面有人手动建过 created_at 之类。逐字段补齐：
+            for col in ("created_at", "last_login_at"):
+                if col not in user_columns:
+                    c.execute(f'ALTER TABLE users ADD COLUMN {col} INTEGER')
+
+        # 用户微调模型表：仅记录用户名与模型名，路径统一约定为 output/{username}/{model_name}
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS models (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                is_published INTEGER DEFAULT 0,
+                version_tag TEXT,
+                UNIQUE(username, model_name)
+            )
+        ''')
+        # 自动升级逻辑
+        c.execute("PRAGMA table_info(models)")
+        model_columns = {row[1] for row in c.fetchall()}
+        if "is_published" not in model_columns:
+            c.execute('ALTER TABLE models ADD COLUMN is_published INTEGER DEFAULT 0')
+        if "version_tag" not in model_columns:
+            c.execute('ALTER TABLE models ADD COLUMN version_tag TEXT')
+
+        conn.commit()
 
 init_db()
 
 
 
-def sync_user_words_txt(username: str):
+async def sync_user_words_txt(username: str):
     """
     每次任务有增、删、改时调用。
     将该用户的所有文本按行同步到 /uploads/{username}/words.txt 中。
+
+    DB 查询走异步（aiosqlite），文件写入仍是同步的小 IO（几 KB），不再单独 to_thread。
     """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    # 按照 id 排序，确保和界面的显示顺序一致
-    c.execute('SELECT text_content FROM tasks WHERE username = ? ORDER BY id ASC', (username,))
-    rows = c.fetchall()
-    conn.close()
+    # 先把数据从 DB 取出来（async with 块退出时连接立即释放），
+    # 后面的文件 IO 如果抛异常也不会牵连数据库连接。
+    async with get_db() as conn:
+        # 按照 id 排序，确保和界面的显示顺序一致
+        cursor = await conn.execute(
+            'SELECT text_content FROM tasks WHERE username = ? ORDER BY id ASC',
+            (username,)
+        )
+        rows = await cursor.fetchall()
 
     user_upload_dir = os.path.join(UPLOAD_DIR, username)
     
@@ -105,75 +137,120 @@ class TaskText(BaseModel):
     text: str
 
 
+# 用户名 / 密码 字段规则
+# - username: 1-20 字符（含中文），可后续接入 P0-2 的更严格白名单
+# - password: 4-16 字符任意（允许 PIN 风格的纯数字，也允许长一些的密码）
 class UserAuth(BaseModel):
-    username: str
+    username: str = Field(..., min_length=1, max_length=20)
+    password: str = Field(..., min_length=4, max_length=16, description="4-16 字符密码")
 
 
 @router.post("/api/register")
 async def register_user(user: UserAuth):
+    """注册新代号 + 密码。
+
+    返回 JWT token，前端直接持有即可登录态。
+    """
     clean_name = user.username.strip()
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # 检查是否同名
-    c.execute('SELECT username FROM users WHERE username = ?', (clean_name,))
-    if c.fetchone():
-        conn.close()
-        return JSONResponse(status_code=400, content={"message": "⚠️ 该代号已被注册！如果是你本人，请点击「直接登录」。"})
-    
-    # 未被注册则插入新用户
-    c.execute('INSERT INTO users (username) VALUES (?)', (clean_name,))
-    conn.commit()
-    conn.close()
-    
-    return {"message": "注册成功"}
+    if not clean_name:
+        return JSONResponse(status_code=400, content={"message": "⚠️ 代号不能为空。"})
+
+    pw_hash = hash_password(user.password)
+    now_ts = int(time.time())
+
+    async with get_db() as conn:
+        # 检查是否同名
+        cursor = await conn.execute('SELECT username FROM users WHERE username = ?', (clean_name,))
+        if await cursor.fetchone():
+            return JSONResponse(
+                status_code=400,
+                content={"message": "⚠️ 该代号已被注册！如果是你本人，请点击「直接登录」。"}
+            )
+
+        # 插入新用户（用户名 + 密码哈希 + 注册时间）
+        await conn.execute(
+            'INSERT INTO users (username, password_hash, created_at, last_login_at) VALUES (?, ?, ?, ?)',
+            (clean_name, pw_hash, now_ts, now_ts)
+        )
+        await conn.commit()
+
+    token = create_access_token(clean_name)
+    return {"message": "注册成功", "token": token, "username": clean_name}
 
 
 @router.post("/api/login")
 async def login_user(user: UserAuth):
+    """用代号 + 密码登录，成功返回 JWT token。
+
+    返回的 401/400 错误信息刻意保持笼统（"代号或密码错误"），不告诉攻击者哪个错了，
+    避免泄露"哪些用户名存在"。
+    """
     clean_name = user.username.strip()
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # 检查用户是否存在
-    c.execute('SELECT username FROM users WHERE username = ?', (clean_name,))
-    if not c.fetchone():
-        conn.close()
-        return JSONResponse(status_code=400, content={"message": "⚠️ 找不到该代号！请先点击「注册新代号」。"})
-        
-    conn.close()
-    return {"message": "登录成功"}
+    generic_error = JSONResponse(
+        status_code=400,
+        content={"message": "⚠️ 代号或密码错误，请重试。"}
+    )
+
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT password_hash FROM users WHERE username = ?',
+            (clean_name,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return generic_error
+        if not verify_password(user.password, row[0]):
+            return generic_error
+
+        # 更新最后登录时间
+        await conn.execute(
+            'UPDATE users SET last_login_at = ? WHERE username = ?',
+            (int(time.time()), clean_name)
+        )
+        await conn.commit()
+
+    token = create_access_token(clean_name)
+    return {"message": "登录成功", "token": token, "username": clean_name}
+
+
+@router.get("/api/me")
+async def get_me(current_user: str = Depends(get_current_user)):
+    """前端 token 健康检查 / "我是谁" 查询。
+
+    任何带有效 token 的请求都能调用，返回当前用户名。
+    前端在页面加载时用它确认 token 还没过期，避免后续 API 全部 401。
+    """
+    return {"username": current_user}
 
 
 @router.post("/api/upload_txt")
-async def upload_txt(username: str, file: UploadFile = File(...)):
+async def upload_txt(
+    file: UploadFile = File(...),
+    current_user: str = Depends(get_current_user),
+):
     content = await file.read()
     lines = content.decode('utf-8').split('\n')
-    
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    added_count = 0
-    for line in lines:
-        line = line.strip()
-        if line:
-            c.execute('INSERT INTO tasks (username, text_content) VALUES (?, ?)', (username, line,))
-            added_count += 1
-    conn.commit()
-    conn.close()
 
-    sync_user_words_txt(username)
-    
+    added_count = 0
+    async with get_db() as conn:
+        for line in lines:
+            line = line.strip()
+            if line:
+                await conn.execute('INSERT INTO tasks (username, text_content) VALUES (?, ?)', (current_user, line,))
+                added_count += 1
+        await conn.commit()
+
+    await sync_user_words_txt(current_user)
+
     return {"message": f"成功导入 {added_count} 条文本任务！"}
 
 
 @router.get("/api/tasks")
-async def get_tasks(username: str):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('SELECT * FROM tasks WHERE username = ? ORDER BY id ASC', (username,))
-    tasks = [dict(row) for row in c.fetchall()]
-    conn.close()
+async def get_tasks(current_user: str = Depends(get_current_user)):
+    async with get_db(row_factory=sqlite3.Row) as conn:
+        cursor = await conn.execute('SELECT * FROM tasks WHERE username = ? ORDER BY id ASC', (current_user,))
+        rows = await cursor.fetchall()
+    tasks = [dict(row) for row in rows]
 
     for task in tasks:
         audio_path = task.get("audio_path")
@@ -185,88 +262,141 @@ async def get_tasks(username: str):
 
 
 @router.post("/api/task")
-async def add_single_task(username: str, task: TaskText):
+async def add_single_task(
+    task: TaskText,
+    current_user: str = Depends(get_current_user),
+):
     """添加单个任务"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    # 注意这里改用 username.strip()，而不是 task.username
-    c.execute('INSERT INTO tasks (username, text_content) VALUES (?, ?)', (username.strip(), task.text.strip()))
-    conn.commit()
-    conn.close()
+    async with get_db() as conn:
+        await conn.execute('INSERT INTO tasks (username, text_content) VALUES (?, ?)', (current_user, task.text.strip()))
+        await conn.commit()
 
     # 同步 words.txt
-    sync_user_words_txt(username)
+    await sync_user_words_txt(current_user)
 
     return {"message": "添加成功"}
 
 
 @router.put("/api/task/{task_id}")
-async def update_task_text(task_id: int, username: str, task: TaskText):
-    """修改现有任务的文本"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('UPDATE tasks SET text_content = ? WHERE id = ? AND username = ?', (task.text.strip(), task_id, username))
-    conn.commit()
-    conn.close()
+async def update_task_text(
+    task_id: int,
+    task: TaskText,
+    current_user: str = Depends(get_current_user),
+):
+    """修改现有任务的文本。
+
+    如果文本发生了变化，旧录音和新文本就对不上号了，此时必须：
+      1. 清空 audio_path 字段、重置 is_completed = 0
+      2. 物理删除旧的 .wav 文件（避免 dataset_builder 后续误用）
+
+    如果文本没变化（用户点开编辑又原样保存），不动录音状态。
+    """
+    new_text = task.text.strip()
+
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT text_content, audio_path FROM tasks WHERE id = ? AND username = ?',
+            (task_id, current_user)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="任务不存在或不属于当前用户")
+        old_text, old_audio_path = row[0], row[1]
+
+        # 文本未变 → 保留已有录音，直接返回
+        if old_text == new_text:
+            return {"message": "文本未变更", "audio_cleared": False}
+
+        # 文本已变 → 旧录音作废
+        await conn.execute(
+            '''UPDATE tasks
+               SET text_content = ?, audio_path = NULL, is_completed = 0, updated_at = ?
+               WHERE id = ? AND username = ?''',
+            (new_text, int(time.time() * 1000), task_id, current_user)
+        )
+        await conn.commit()
+
+    # DB 提交完才删物理文件：即使文件删除失败，DB 状态也已经一致
+    # （留下一个孤儿 wav 不影响 dataset_builder，因为 is_completed 已经是 0）
+    audio_cleared = False
+    if old_audio_path:
+        clean_path = old_audio_path.split('?')[0].lstrip('/')
+        if os.path.exists(clean_path):
+            try:
+                os.remove(clean_path)
+                audio_cleared = True
+            except OSError as e:
+                # 不让文件删除失败阻止任务文本更新
+                print(f"[update_task_text] 删除旧音频失败 {clean_path}: {e}")
 
     # 同步 words.txt
-    sync_user_words_txt(username)
+    await sync_user_words_txt(current_user)
 
-    return {"message": "修改成功"}
+    return {"message": "修改成功", "audio_cleared": audio_cleared}
 
 
 @router.delete("/api/task/{task_id}")
-async def delete_task(task_id: int):
+async def delete_task(
+    task_id: int,
+    current_user: str = Depends(get_current_user),
+):
     """删除任务，并同时清理服务器上的音频文件"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    c.execute('SELECT username, audio_path FROM tasks WHERE id = ?', (task_id,))
-    row = c.fetchone()
-    
-    if not row:
-        conn.close()
-        return {"message": "任务不存在"}
-        
-    username, audio_path = row[0], row[1]
-    
-    if audio_path:
-        clean_path = audio_path.split('?')[0].lstrip('/')
-        if os.path.exists(clean_path):
-            os.remove(clean_path)
-            
-    c.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
-    conn.commit()
-    conn.close()
-    sync_user_words_txt(username)
-    
+    async with get_db() as conn:
+        # 关键安全点：DELETE 时同时校验 username = current_user，
+        # 防止用户 A 通过 task_id 删除用户 B 的录音
+        cursor = await conn.execute(
+            'SELECT audio_path FROM tasks WHERE id = ? AND username = ?',
+            (task_id, current_user)
+        )
+        row = await cursor.fetchone()
+
+        if not row:
+            return {"message": "任务不存在或不属于当前用户"}
+
+        audio_path = row[0]
+
+        # 文件删除失败也不应导致连接泄漏（async with 块保证 close）
+        if audio_path:
+            clean_path = audio_path.split('?')[0].lstrip('/')
+            if os.path.exists(clean_path):
+                os.remove(clean_path)
+
+        await conn.execute(
+            'DELETE FROM tasks WHERE id = ? AND username = ?',
+            (task_id, current_user)
+        )
+        await conn.commit()
+
+    await sync_user_words_txt(current_user)
+
     return {"message": "删除成功"}
 
 
 @router.delete("/api/tasks")
-async def clear_all_tasks(username: str):
+async def clear_all_tasks(current_user: str = Depends(get_current_user)):
     """清空所有任务，并同时清理服务器上的所有音频文件"""
+    async with get_db() as conn:
+        # 只删当前用户的记录
+        await conn.execute('DELETE FROM tasks WHERE username = ?', (current_user,))
+        await conn.commit()
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    # 只删当前用户的记录
-    c.execute('DELETE FROM tasks WHERE username = ?', (username,))
-    conn.commit()
-    conn.close()
-    
     # 清理该用户专属的文件夹
-    user_upload_dir = os.path.join(UPLOAD_DIR, username)
+    user_upload_dir = os.path.join(UPLOAD_DIR, current_user)
     if os.path.exists(user_upload_dir):
         shutil.rmtree(user_upload_dir)
-            
+
     return {"message": "当前用户的任务及音频已清空"}
 
 
 @router.post("/api/upload_audio/{task_id}")
-async def upload_audio(task_id: int, username: str, audio: UploadFile = File(...)):
+async def upload_audio(
+    task_id: int,
+    audio: UploadFile = File(...),
+    current_user: str = Depends(get_current_user),
+):
     """接收前端录音，并转换为 16kHz 单声道 wav 格式，更新数据库状态"""
     # 动态拼接用户文件夹并创建
-    user_upload_dir = os.path.join(UPLOAD_DIR, username)
+    user_upload_dir = os.path.join(UPLOAD_DIR, current_user)
     os.makedirs(user_upload_dir, exist_ok=True)
     # 浏览器通常录制为 webm 格式
     file_extension = audio.filename.split('.')[-1] if '.' in audio.filename else 'webm'
@@ -306,16 +436,14 @@ async def upload_audio(task_id: int, username: str, audio: UploadFile = File(...
         raise HTTPException(status_code=500, detail="音频转换失败，请检查服务器是否已安装 ffmpeg！")
         
     # 更新数据库状态
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     updated_at = int(time.time() * 1000)
-    db_audio_path = f"/uploads/{username}/{final_wav_name}"
-    c.execute('''
-        UPDATE tasks 
-        SET audio_path = ?, is_completed = 1, updated_at = ?
-        WHERE id = ? AND username = ?
-    ''', (db_audio_path, updated_at, task_id, username))
-    conn.commit()
-    conn.close()
-    
+    db_audio_path = f"/uploads/{current_user}/{final_wav_name}"
+    async with get_db() as conn:
+        await conn.execute('''
+            UPDATE tasks
+            SET audio_path = ?, is_completed = 1, updated_at = ?
+            WHERE id = ? AND username = ?
+        ''', (db_audio_path, updated_at, task_id, current_user))
+        await conn.commit()
+
     return {"message": "录音保存并转换成功", "audio_path": db_audio_path}

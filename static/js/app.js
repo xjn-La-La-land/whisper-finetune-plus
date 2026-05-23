@@ -4,72 +4,86 @@ import CustomAudio from './custom_audio.js?v=1.1';
 import AudioCollector from './audio_collector.js?v=1.1';
 import FinetunePanel from './finetune_panel.js?v=1.1';
 import InferencePanel from './inference_panel.js?v=1.1';
+import * as dialog from './dialog.js?v=1.1';
+import { apiFetch, setToken, clearToken, getToken, getStoredUsername } from './api.js?v=1.1';
 
 const app = createApp({
     setup() {
         // --- 全局状态 ---
         const currentUser = ref("");
         const loginInput = ref("");
+        const passwordInput = ref("");
         const isCollectOnly = ref(false);
-        
+
         // --- Tab 控制与动画状态 ---
         const currentTab = ref('AudioCollector'); // 默认显示第一个节点
         const transitionName = ref('slide-left'); // 默认进场方向：向左滑动
         const tabOrder = ['AudioCollector', 'FinetunePanel', 'InferencePanel'];
 
-        // --- 新增：智能判断滑动方向的切换函数 ---
         const changeTab = (targetTab) => {
-            if (currentTab.value === targetTab) return; 
-            
-            // 获取当前页面和目标页面在数组中的序号 (0, 1, 2)
+            if (currentTab.value === targetTab) return;
             const currentIndex = tabOrder.indexOf(currentTab.value);
             const targetIndex = tabOrder.indexOf(targetTab);
-            
-            // 智能判断方向：目标序号大于当前序号就是前进（向左滑），否则就是后退（向右滑）
-            if (targetIndex > currentIndex) {
-                transitionName.value = 'slide-left';  
-            } else {
-                transitionName.value = 'slide-right'; 
-            }
-            
+            transitionName.value = targetIndex > currentIndex ? 'slide-left' : 'slide-right';
             currentTab.value = targetTab;
         };
 
-        // --- 登录/注册逻辑 (保持原样即可) ---
+        // --- 登录/注册逻辑 ---
+        // 提交时校验密码长度，符合后端 4-16 字符的要求
+        const validatePassword = (pwd) => {
+            if (!pwd) return "密码不能为空哦！";
+            if (pwd.length < 4) return "密码至少需要 4 个字符。";
+            if (pwd.length > 16) return "密码最多 16 个字符。";
+            return null;
+        };
+
         const handleAuth = async (type) => {
-            // ... (你原来的代码逻辑) ...
             const name = loginInput.value.trim();
-            if (!name) return alert("代号不能为空哦！");
+            const pwd = passwordInput.value;
+            if (!name) return dialog.alert("代号不能为空哦！", { variant: 'warning' });
+            const pwdErr = validatePassword(pwd);
+            if (pwdErr) return dialog.alert(pwdErr, { variant: 'warning' });
 
             const endpoint = type === 'login' ? '/api/login' : '/api/register';
             try {
+                // 登录/注册接口本身不需要 token，所以用原生 fetch
                 const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: name })
+                    body: JSON.stringify({ username: name, password: pwd })
                 });
 
                 if (!res.ok) {
                     const errorData = await res.json();
-                    alert(errorData.message);
+                    await dialog.alert(errorData.message || '认证失败', { variant: 'warning' });
                     return;
                 }
 
-                currentUser.value = name;
-                localStorage.setItem("whisper_username", name);
+                const data = await res.json();
+                // 服务器返回 { message, token, username }
+                if (!data.token) {
+                    await dialog.alert('登录响应缺少 token，请联系管理员', { variant: 'danger' });
+                    return;
+                }
+                setToken(data.token, data.username || name);
+                currentUser.value = data.username || name;
+                // 清掉密码输入框，避免悬停回显
+                passwordInput.value = "";
             } catch (err) {
-                alert("网络请求失败，请检查后端服务是否启动！");
+                await dialog.alert("网络请求失败，请检查后端服务是否启动！", { variant: 'danger' });
             }
         };
-        
-        const handleLogout = () => {
-            if (!confirm("确定要退出当前账号吗？")) return;
+
+        const handleLogout = async () => {
+            const ok = await dialog.confirm("确定要退出当前账号吗？");
+            if (!ok) return;
+            clearToken();
             currentUser.value = "";
             loginInput.value = "";
-            localStorage.removeItem("whisper_username");
+            passwordInput.value = "";
         };
 
-        onMounted(async () => { 
+        onMounted(async () => {
             try {
                 const configRes = await fetch('/api/config');
                 const configData = await configRes.json();
@@ -77,23 +91,60 @@ const app = createApp({
             } catch (e) {
                 console.error("获取系统配置失败", e);
             }
-            
-            const savedName = localStorage.getItem("whisper_username");
-            if (savedName) {
-                currentUser.value = savedName;
+
+            // 从 localStorage 恢复 token，先调 /api/me 确认它还有效
+            // 这样可以避免后续每个面板自己处理过期 token
+            const savedToken = getToken();
+            if (savedToken) {
+                try {
+                    const r = await apiFetch('/api/me');
+                    if (r.ok) {
+                        const data = await r.json();
+                        currentUser.value = data.username;
+                    } else {
+                        // 401 已被 apiFetch 自动清掉 token
+                        currentUser.value = "";
+                    }
+                } catch (e) {
+                    console.error("token 校验失败", e);
+                    currentUser.value = "";
+                }
             }
+
+            // 监听 apiFetch 抛出的 401 事件：任何后续请求收到 401 都自动把用户踢回登录页
+            window.addEventListener('whisper:unauthorized', () => {
+                if (currentUser.value) {
+                    currentUser.value = "";
+                    dialog.alert("登录已过期，请重新登录", { variant: 'warning' });
+                }
+            });
+
+            // 全局键盘支持：dialog 显示时 Enter 确认 / Esc 取消
+            window.addEventListener('keydown', (e) => {
+                if (!dialog.dialogState.visible) return;
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    dialog.handleConfirm();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    dialog.handleCancel();
+                }
+            });
         });
 
-        // ================= 注意这里！将新定义的变量和函数 return 暴露给 HTML =================
-        return { 
-            currentUser, 
-            loginInput, 
+        return {
+            currentUser,
+            loginInput,
+            passwordInput,
             isCollectOnly,
-            currentTab, 
-            transitionName,  // 导出动画类名
-            changeTab,       // 导出切换事件
-            handleAuth, 
-            handleLogout 
+            currentTab,
+            transitionName,
+            changeTab,
+            handleAuth,
+            handleLogout,
+            dialogState: dialog.dialogState,
+            dialogConfirm: dialog.handleConfirm,
+            dialogCancel: dialog.handleCancel
         }
     }
 });

@@ -1,4 +1,6 @@
 const { ref, onMounted, onUnmounted, onActivated, nextTick, watch } = Vue;
+import * as dialog from './dialog.js?v=1.1';
+import { apiFetch, sseUrl } from './api.js?v=1.1';
 
 export default {
     template: '#tpl-finetune-panel',
@@ -22,13 +24,56 @@ export default {
         const lastTrainedModelName = ref("");
         const isPublishing = ref(false);
 
+        // --- 模型名称实时校验状态 ---
+        // state: 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+        // 用于在用户失焦输入框后即时反馈名称是否可用，避免填完所有参数才报重复
+        const modelNameStatus = ref({ state: 'idle', message: '' });
+
+        // 用户在输入时清空旧状态，避免显示 stale 的"已被使用"提示
+        const clearModelNameStatus = () => {
+            if (modelNameStatus.value.state !== 'idle') {
+                modelNameStatus.value = { state: 'idle', message: '' };
+            }
+        };
+
+        const checkModelNameAvailable = async () => {
+            const name = (finetuneParams.value.model_name || "").trim();
+            if (!name) {
+                modelNameStatus.value = { state: 'idle', message: '' };
+                return;
+            }
+            if (!props.currentUser) return;
+
+            modelNameStatus.value = { state: 'checking', message: '正在检查名称…' };
+            try {
+                const url = `/api/check_model_name?model_name=${encodeURIComponent(name)}`;
+                const res = await apiFetch(url, { cache: 'no-store' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+
+                if (data.available) {
+                    modelNameStatus.value = { state: 'available', message: '✓ 名称可用' };
+                } else if (data.reason === 'taken') {
+                    modelNameStatus.value = { state: 'taken', message: '⚠ 该名称已被使用，请换一个' };
+                } else if (data.reason === 'too_long') {
+                    modelNameStatus.value = { state: 'invalid', message: '⚠ 名称过长（最多 80 字符）' };
+                } else if (data.reason === 'empty') {
+                    modelNameStatus.value = { state: 'idle', message: '' };
+                } else {
+                    modelNameStatus.value = { state: 'invalid', message: '⚠ 名称无效' };
+                }
+            } catch (e) {
+                console.error("检查模型名称失败", e);
+                // 网络出错时不阻塞用户，回到 idle，后端 start_finetune 仍会做最终把关
+                modelNameStatus.value = { state: 'idle', message: '' };
+            }
+        };
+
         // 检查数据集状态（页面刷新后恢复步骤解锁状态）
         const checkDatasetStatus = async () => {
             if (!props.currentUser) return;
             try {
-                const res = await fetch(`/api/check_dataset?username=${encodeURIComponent(props.currentUser)}`, {
-                    cache: 'no-store'
-                });
+                const res = await apiFetch('/api/check_dataset', { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 hasDataset.value = Boolean(data.has_dataset);
@@ -45,16 +90,22 @@ export default {
         const checkTrainingStatus = async () => {
             if (!props.currentUser) return;
             try {
-                const res = await fetch('/api/gpu_status', { cache: 'no-store' });
+                const res = await apiFetch('/api/gpu_status', { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
                 const userIsTraining = data.status === 'TRAINING' && data.current_user === props.currentUser;
                 isTraining.value = userIsTraining;
 
-                // 刷新后若该用户训练仍在进行，自动重连 SSE
-                if (userIsTraining && !eventSource) {
-                    await startSSE({ resetChart: false });
+                // 刷新后若该用户训练仍在进行，从后端拿到正在训练的 model_name，
+                // 把它填回输入框并自动重连 SSE / 重载历史曲线
+                if (userIsTraining && data.current_model_name) {
+                    finetuneParams.value.model_name = data.current_model_name;
+                    // 训练中 → 同步加载已经写入的 loss 曲线（不重置）+ 续连 SSE
+                    await loadChartHistory(data.current_model_name);
+                    if (!eventSource) {
+                        await startSSE({ resetChart: false, modelName: data.current_model_name });
+                    }
                 }
             } catch (e) {
                 console.error("检查训练状态失败", e);
@@ -98,7 +149,7 @@ export default {
         const loadBaseModelOptions = async () => {
             try {
                 baseModelError.value = "";
-                const res = await fetch('/api/base_models', { cache: 'no-store' });
+                const res = await apiFetch('/api/base_models', { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 baseModelOptions.value = Array.isArray(data.models) ? data.models : [];
@@ -190,19 +241,19 @@ export default {
             }
 
             try {
-                const res = await fetch('/api/base_models/download', {
+                const res = await apiFetch('/api/base_models/download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ model_name: selected.name })
                 });
                 const data = await res.json();
                 if (!res.ok) {
-                    alert(data.detail || '启动下载失败，请稍后重试');
+                    dialog.alert(data.detail || '启动下载失败，请稍后重试', { variant: 'danger' });
                     return;
                 }
                 await loadBaseModelOptions();
             } catch (err) {
-                alert('网络请求失败，无法启动基础模型下载');
+                dialog.alert('网络请求失败，无法启动基础模型下载', { variant: 'danger' });
             }
         };
 
@@ -307,8 +358,19 @@ export default {
         };
 
 
-        const loadChartHistory = async () => {
-            if (!props.currentUser) return;
+        // 加载某个具体模型的训练历史曲线。
+        // 日志路径按 {username}/{model_name} 隔离，不带 modelName 就无从加载。
+        const loadChartHistory = async (modelName) => {
+            if (!props.currentUser || !modelName) {
+                // 没有 model 上下文时清空图表，避免显示陈旧数据
+                trainLossData = [];
+                evalLossData = [];
+                if (myChart) {
+                    myChart.setOption({ series: [{ data: [] }, { data: [] }] });
+                }
+                hasChartData.value = false;
+                return;
+            }
 
             const ready = await ensureChartReady();
             if (!ready || !myChart) {
@@ -317,9 +379,8 @@ export default {
             }
 
             try {
-                const res = await fetch(`/api/train_history?username=${encodeURIComponent(props.currentUser)}`, {
-                    cache: 'no-store'
-                });
+                const url = `/api/train_history?model_name=${encodeURIComponent(modelName)}`;
+                const res = await apiFetch(url, { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
                 const data = await res.json();
@@ -345,7 +406,12 @@ export default {
 
 
         // --- 监听 SSE 流数据 ---
-        const startSSE = async ({ resetChart = true } = {}) => {
+        // modelName 必填：日志路径按模型隔离，没有它就找不到对应日志文件
+        const startSSE = async ({ resetChart = true, modelName } = {}) => {
+            if (!modelName) {
+                console.error("[SSE] startSSE 需要 modelName 参数");
+                return;
+            }
             if (eventSource) {
                 eventSource.close();
                 eventSource = null;
@@ -368,7 +434,8 @@ export default {
 
             hasChartData.value = trainLossData.length > 0 || evalLossData.length > 0;
 
-            eventSource = new EventSource(`/api/train_stream?username=${encodeURIComponent(props.currentUser)}`);
+            // sseUrl() 自动把 JWT token 拼到 query（EventSource 不支持自定义 header）
+            eventSource = new EventSource(sseUrl('/api/train_stream', { model_name: modelName }));
 
             eventSource.onmessage = (event) => {
                 let data = null;
@@ -394,7 +461,7 @@ export default {
                     isTraining.value = false;
                     eventSource.close();
                     eventSource = null;
-                    alert("⚠️ 训练中断或发生错误: " + data.message);
+                    dialog.alert("训练中断或发生错误：\n" + data.message, { variant: 'danger', title: '训练异常' });
                     return;
                 }
 
@@ -429,11 +496,11 @@ export default {
             buildResult.value = null;
 
             try {
-                const res = await fetch('/api/build_dataset', {
+                const res = await apiFetch('/api/build_dataset', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        username: props.currentUser,
+                        // username 由后端从 JWT 取，不再传
                         test_ratio: datasetParams.value.test_ratio
                     })
                 });
@@ -456,26 +523,32 @@ export default {
         const handleStartFinetune = async () => {
             if (!props.currentUser || !hasDataset.value) return;
             if (!finetuneParams.value.model_name.trim()) {
-                alert("请先输入模型名称");
+                await dialog.alert("请先输入模型名称", { variant: 'warning' });
+                return;
+            }
+            // 如果失焦校验已经发现重名 / 名称无效，直接拦下来；
+            // 后端 start_finetune 也会再 check 一遍兜底
+            if (modelNameStatus.value.state === 'taken' || modelNameStatus.value.state === 'invalid') {
+                await dialog.alert(modelNameStatus.value.message || "模型名称不可用", { variant: 'warning' });
                 return;
             }
             if (!finetuneParams.value.base_model) {
-                alert("请先选择基础模型");
+                await dialog.alert("请先选择基础模型", { variant: 'warning' });
                 return;
             }
             if (!isSelectedBaseModelDownloaded()) {
-                alert("当前基础模型还未下载到本地，请先点击下载");
+                await dialog.alert("当前基础模型还未下载到本地，请先点击下载", { variant: 'warning' });
                 return;
             }
             
             isTraining.value = true;
 
             try {
-                const res = await fetch('/api/start_finetune', {
+                const res = await apiFetch('/api/start_finetune', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        username: props.currentUser,
+                        // username 由后端从 JWT 取
                         model_name: finetuneParams.value.model_name.trim(),
                         base_model: finetuneParams.value.base_model,
                         learning_rate: finetuneParams.value.learning_rate,
@@ -492,14 +565,17 @@ export default {
 
                 if (res.ok) {
                     // API 返回成功代表后台进程已成功拉起，开始连 SSE 监听图表数据！
-                    await startSSE({ resetChart: true });
+                    await startSSE({
+                        resetChart: true,
+                        modelName: finetuneParams.value.model_name.trim()
+                    });
                 } else {
                     const errorData = await res.json();
-                    alert(`启动失败: ${errorData.detail}`);
+                    dialog.alert(`启动失败：${errorData.detail}`, { variant: 'danger' });
                     isTraining.value = false;
                 }
             } catch (err) {
-                alert("网络请求失败，无法启动训练！");
+                dialog.alert("网络请求失败，无法启动训练！", { variant: 'danger' });
                 isTraining.value = false;
             }
         };
@@ -508,6 +584,9 @@ export default {
         const handleResize = () => { if (myChart) myChart.resize(); };
 
         // 生命周期管理
+        // 注意：不再在 onMounted/onActivated 里无条件调 loadChartHistory()，
+        // 因为日志现在按模型隔离，没有 model_name 上下文就不知道加载哪个。
+        // 由 checkTrainingStatus 在发现"用户正在训练"时主动 loadChartHistory(currentModel)。
         onMounted(async () => {
             await ensureChartReady();
             if (myChart) myChart.resize();
@@ -516,7 +595,6 @@ export default {
 
             await refreshStepStatus();
             await loadBaseModelOptions();
-            await loadChartHistory();
             await checkTrainingStatus();
         });
 
@@ -526,7 +604,6 @@ export default {
 
             await refreshStepStatus();
             await loadBaseModelOptions();
-            await loadChartHistory();
             await checkTrainingStatus();
         });
 
@@ -551,12 +628,13 @@ export default {
                     }
                     finetuneParams.value.model_name = "";
                     finetuneParams.value.base_model = "";
+                    modelNameStatus.value = { state: 'idle', message: '' };
                     return;
                 }
 
                 await refreshStepStatus();
                 await loadBaseModelOptions();
-                await loadChartHistory();
+                // loadChartHistory 由 checkTrainingStatus 在需要时按 model_name 主动调用
                 await checkTrainingStatus();
             }
         );
@@ -573,23 +651,25 @@ export default {
             if (!lastTrainedModelName.value) return;
             isPublishing.value = true;
             try {
-                const response = await fetch('/api/publish_model', {
+                const response = await apiFetch('/api/publish_model', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        username: props.currentUser, 
-                        model_name: lastTrainedModelName.value 
+                    body: JSON.stringify({
+                        // username 由后端从 JWT 取
+                        model_name: lastTrainedModelName.value
                     })
                 });
                 const data = await response.json();
                 if (response.ok) {
-                    alert('🚀 发布成功！客户端现在可以检测到更新了。');
+                    await dialog.alert('发布成功！客户端现在可以检测到更新了。', {
+                        variant: 'success', title: '🚀 发布成功'
+                    });
                     showPublishModal.value = false;
                 } else {
-                    alert('❌ 发布失败: ' + data.detail);
+                    await dialog.alert('发布失败：' + data.detail, { variant: 'danger' });
                 }
             } catch (e) {
-                alert('❌ 网络请求失败，无法发布模型');
+                await dialog.alert('网络请求失败，无法发布模型', { variant: 'danger' });
             } finally {
                 isPublishing.value = false;
             }
@@ -625,7 +705,10 @@ export default {
             lastTrainedModelName,
             isPublishing,
             handlePublishModel,
-            closePublishModal
+            closePublishModal,
+            modelNameStatus,
+            checkModelNameAvailable,
+            clearModelNameStatus
         };
 
     }

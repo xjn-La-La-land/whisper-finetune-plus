@@ -38,12 +38,95 @@
 </head>
 <body class="bg-blue-50 font-sans min-h-screen pb-28 text-gray-800">
     <div id="app" class="max-w-[1600px] mx-auto px-4 lg:px-6 relative h-full">
-        
+
+        <!-- ============ 全局自定义对话框（替代原生 alert / confirm）============ -->
+        <!-- 放在 #app 顶层、登录遮罩之外，z-index 最高，登录界面也能正常弹出 -->
+        <transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-if="dialogState.visible"
+                 class="fixed inset-0 z-[300] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <transition
+                    enter-active-class="transition duration-200 ease-out"
+                    enter-from-class="opacity-0 scale-95"
+                    enter-to-class="opacity-100 scale-100"
+                    appear
+                >
+                    <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
+                        <!-- 顶部状态条按 variant 着色 -->
+                        <div class="h-2"
+                             :class="{
+                                 'bg-blue-500':   dialogState.variant === 'info',
+                                 'bg-green-500':  dialogState.variant === 'success',
+                                 'bg-yellow-500': dialogState.variant === 'warning',
+                                 'bg-red-500':    dialogState.variant === 'danger'
+                             }"></div>
+
+                        <div class="p-8">
+                            <!-- 图标 + 标题（大字号、对脑瘫儿童家长友好）-->
+                            <div class="flex items-center gap-4 mb-5">
+                                <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0"
+                                     :class="{
+                                         'bg-blue-100':   dialogState.variant === 'info',
+                                         'bg-green-100':  dialogState.variant === 'success',
+                                         'bg-yellow-100': dialogState.variant === 'warning',
+                                         'bg-red-100':    dialogState.variant === 'danger'
+                                     }">
+                                    <span v-if="dialogState.variant === 'info'">💡</span>
+                                    <span v-else-if="dialogState.variant === 'success'">🎉</span>
+                                    <span v-else-if="dialogState.variant === 'warning'">⚠️</span>
+                                    <span v-else-if="dialogState.variant === 'danger'">⛔</span>
+                                </div>
+                                <h3 class="text-xl font-extrabold text-gray-800 leading-tight">{{ dialogState.title }}</h3>
+                            </div>
+
+                            <!-- 消息正文：whitespace-pre-wrap 保留换行；大字号便于阅读 -->
+                            <p class="text-base text-gray-700 leading-relaxed mb-8 whitespace-pre-wrap pl-1">{{ dialogState.message }}</p>
+
+                            <!-- 按钮区：60px+ 高度 + gap-4 间距，避免肌肉震颤误触 -->
+                            <div class="flex gap-4">
+                                <button v-if="dialogState.type === 'confirm'"
+                                        @click="dialogCancel"
+                                        class="flex-1 px-6 py-4 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-base transition active:scale-95">
+                                    {{ dialogState.cancelText }}
+                                </button>
+                                <button @click="dialogConfirm"
+                                        class="flex-1 px-6 py-4 rounded-2xl text-white font-bold text-base transition active:scale-95 shadow-lg"
+                                        :class="{
+                                            'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30':     dialogState.variant === 'info',
+                                            'bg-green-500 hover:bg-green-600 shadow-green-500/30':  dialogState.variant === 'success',
+                                            'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30': dialogState.variant === 'warning',
+                                            'bg-red-500 hover:bg-red-600 shadow-red-500/30':         dialogState.variant === 'danger'
+                                        }">
+                                    {{ dialogState.confirmText }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+            </div>
+        </transition>
+        <!-- ============ /全局自定义对话框 ============ -->
+
         <div v-if="!currentUser" class="fixed inset-0 z-[200] bg-blue-50/95 backdrop-blur-md flex items-center justify-center">
             <div class="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full mx-4 border border-blue-100 text-center transform transition-all">
                 <h2 class="text-2xl font-extrabold text-gray-800 mb-2">欢迎来到whisper语音识别小助手！</h2>
-                <p class="text-gray-500 mb-8 text-sm">请输入你的专属代号╰(*°▽°*)╯</p>
-                <input v-model="loginInput" @keyup.enter="handleAuth('login')" type="text" placeholder="例如：哈基米/LolCat" class="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl px-5 py-4 text-lg text-center font-bold focus:outline-none focus:border-blue-400 focus:bg-white transition mb-6 shadow-sm placeholder-gray-300">
+                <p class="text-gray-500 mb-8 text-sm">请输入你的专属代号和密码╰(*°▽°*)╯</p>
+                <input v-model="loginInput"
+                       type="text"
+                       placeholder="代号（例如：哈基米/LolCat）"
+                       class="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl px-5 py-4 text-lg text-center font-bold focus:outline-none focus:border-blue-400 focus:bg-white transition mb-4 shadow-sm placeholder-gray-300">
+                <input v-model="passwordInput"
+                       @keyup.enter="handleAuth('login')"
+                       type="password"
+                       placeholder="密码（4-16 个字符）"
+                       autocomplete="current-password"
+                       class="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl px-5 py-4 text-lg text-center font-bold focus:outline-none focus:border-blue-400 focus:bg-white transition mb-6 shadow-sm placeholder-gray-300">
                 <div class="flex flex-col gap-3">
                     <button @click="handleAuth('login')" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-extrabold text-lg py-4 rounded-2xl shadow-lg shadow-blue-500/30 transition transform hover:-translate-y-1 active:translate-y-0">直接登录</button>
                     <button @click="handleAuth('register')" class="w-full bg-white text-blue-600 border-2 border-blue-100 hover:bg-blue-50 font-extrabold text-lg py-3 rounded-2xl transition shadow-sm hover:-translate-y-1 active:translate-y-0">注册新代号</button>
@@ -288,10 +371,24 @@
                         </label>
                         <div class="flex flex-col gap-3">
                             <input v-model.trim="finetuneParams.model_name"
+                                   @blur="checkModelNameAvailable"
+                                   @input="clearModelNameStatus"
                                    type="text"
                                    placeholder="例如：whisper-large-v3-lora-v1"
-                                   class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-400 font-semibold text-gray-700 bg-white">
-                            <p class="text-xs text-gray-500">开始训练时会自动检查该名称是否已存在，若重复会提示你更换。</p>
+                                   class="flex-1 px-4 py-3 border rounded-xl focus:outline-none font-semibold text-gray-700 bg-white transition-colors"
+                                   :class="{
+                                       'border-gray-200 focus:border-indigo-400': modelNameStatus.state === 'idle' || modelNameStatus.state === 'checking',
+                                       'border-green-300 focus:border-green-400 bg-green-50/50': modelNameStatus.state === 'available',
+                                       'border-red-300 focus:border-red-400 bg-red-50/50': modelNameStatus.state === 'taken' || modelNameStatus.state === 'invalid'
+                                   }">
+                            <p v-if="modelNameStatus.message"
+                               class="text-xs font-semibold"
+                               :class="{
+                                   'text-gray-500': modelNameStatus.state === 'checking',
+                                   'text-green-600': modelNameStatus.state === 'available',
+                                   'text-red-600': modelNameStatus.state === 'taken' || modelNameStatus.state === 'invalid'
+                               }">{{ modelNameStatus.message }}</p>
+                            <p v-else class="text-xs text-gray-500">输入完毕后失焦会自动检查该名称是否已存在。</p>
                         </div>
                     </div>
 
@@ -453,7 +550,7 @@
             </div>
 
             <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 text-center transition hover:shadow-md" :class="!hasDataset ? 'opacity-60 pointer-events-none grayscale-[30%]' : ''">
-                <button @click="handleStartFinetune" :disabled="isTraining || !hasDataset" class="w-full md:w-auto bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 disabled:from-gray-300 disabled:to-gray-400 text-white px-12 py-5 rounded-full font-extrabold text-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3 shadow-xl mx-auto mb-6 disabled:transform-none disabled:shadow-none">
+                <button @click="handleStartFinetune" :disabled="isTraining || !hasDataset || modelNameStatus.state === 'taken' || modelNameStatus.state === 'invalid'" class="w-full md:w-auto bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 disabled:from-gray-300 disabled:to-gray-400 text-white px-12 py-5 rounded-full font-extrabold text-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3 shadow-xl mx-auto mb-6 disabled:transform-none disabled:shadow-none">
                     <svg v-if="!isTraining" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <svg v-else class="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                     {{ isTraining ? '模型正在努力学习中...' : '启动微调训练！' }}

@@ -1,4 +1,6 @@
 const { ref, computed, onMounted, onUnmounted, nextTick } = Vue;
+import * as dialog from './dialog.js?v=1.1';
+import { apiFetch } from './api.js?v=1.1';
 
 export default {
     template: '#tpl-audio-collector',
@@ -31,24 +33,28 @@ export default {
         // --- API 交互 (使用 props.currentUser) ---
         const fetchTasks = async () => {
             if (!props.currentUser) return;
-            const res = await fetch(`/api/tasks?username=${encodeURIComponent(props.currentUser)}&t=${new Date().getTime()}`);
+            // username 由后端从 JWT 提取，不再传 query；`t=...` 用于绕过浏览器缓存
+            const res = await apiFetch(`/api/tasks?t=${new Date().getTime()}`);
+            if (!res.ok) return;  // 401 已被 apiFetch 处理，其他错误静默
             tasks.value = await res.json();
         };
 
         const uploadTxt = async () => {
             const file = txtInput.value.files[0];
-            if (!file) return alert("请先选择一个 TXT 文件！");
+            if (!file) return dialog.alert("请先选择一个 TXT 文件！", { variant: 'warning' });
             const formData = new FormData();
             formData.append("file", file);
-            await fetch(`/api/upload_txt?username=${encodeURIComponent(props.currentUser)}`, { method: 'POST', body: formData });
+            await apiFetch('/api/upload_txt', { method: 'POST', body: formData });
             txtInput.value.value = "";
             fetchTasks();
         };
 
         const addTask = async () => {
             if (!newTaskText.value.trim()) return;
-            await fetch(`/api/task?username=${encodeURIComponent(props.currentUser)}`, { 
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: newTaskText.value }) 
+            await apiFetch('/api/task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: newTaskText.value })
             });
             newTaskText.value = "";
             fetchTasks();
@@ -57,23 +63,48 @@ export default {
         const startEditing = (task) => { editingTaskId.value = task.id; editingTaskText.value = task.text_content; };
         const cancelEdit = () => { editingTaskId.value = null; editingTaskText.value = ""; };
         const saveEdit = async (taskId) => {
-            if (!editingTaskText.value.trim()) return alert("文本不能为空！");
-            await fetch(`/api/task/${taskId}?username=${encodeURIComponent(props.currentUser)}`, { 
-                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: editingTaskText.value }) 
+            const newText = editingTaskText.value.trim();
+            if (!newText) return dialog.alert("文本不能为空！", { variant: 'warning' });
+
+            // 找到原任务，判断是否有录音且文本是否真的改了。
+            // 如果文本变了且已经录过音，提醒用户：保存就会丢失旧录音。
+            const original = tasks.value.find(t => t.id === taskId);
+            const textChanged = original ? original.text_content !== newText : true;
+            const hasAudio = !!(original && original.is_completed);
+            if (textChanged && hasAudio) {
+                const ok = await dialog.confirm(
+                    "修改文本会丢弃这一条已录制的音频，需要重新录制。确定继续吗？",
+                    { variant: 'warning', confirmText: '确定修改', cancelText: '保留原录音' }
+                );
+                if (!ok) return;
+            }
+
+            await apiFetch(`/api/task/${taskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: newText })
             });
             editingTaskId.value = null;
             fetchTasks();
         };
 
         const deleteTask = async (taskId) => {
-            if (!confirm("确定要删除这条录音任务吗？已录制的音频也会被永久删除！")) return;
-            await fetch(`/api/task/${taskId}?username=${encodeURIComponent(props.currentUser)}`, { method: 'DELETE' });
+            const ok = await dialog.confirm(
+                "确定要删除这条录音任务吗？已录制的音频也会被永久删除！",
+                { variant: 'danger', confirmText: '删除', cancelText: '取消' }
+            );
+            if (!ok) return;
+            await apiFetch(`/api/task/${taskId}`, { method: 'DELETE' });
             fetchTasks();
         };
 
         const clearAllTasks = async () => {
-            if (!confirm(`确定要清空代号 [${props.currentUser}] 的所有任务和音频吗？`)) return;
-            await fetch(`/api/tasks?username=${encodeURIComponent(props.currentUser)}`, { method: 'DELETE' });
+            const ok = await dialog.confirm(
+                `确定要清空代号 [${props.currentUser}] 的所有任务和音频吗？此操作无法撤销！`,
+                { variant: 'danger', confirmText: '全部清空', cancelText: '取消' }
+            );
+            if (!ok) return;
+            await apiFetch('/api/tasks', { method: 'DELETE' });
             fetchTasks();
         };
 
@@ -91,7 +122,7 @@ export default {
                 mediaRecorder.start();
                 recordingTaskId.value = taskId;
             } catch (err) {
-                alert("无法访问麦克风，请确保浏览器已授权！");
+                dialog.alert("无法访问麦克风，请确保浏览器已授权！", { variant: 'danger' });
             }
         };
 
@@ -115,13 +146,13 @@ export default {
                 focusedTaskIndex.value < tasks.value.length - 1
             );
             try {
-                const response = await fetch(`/api/upload_audio/${taskId}?username=${encodeURIComponent(props.currentUser)}`, { method: 'POST', body: formData });
+                const response = await apiFetch(`/api/upload_audio/${taskId}`, { method: 'POST', body: formData });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.detail || `Upload failed with status ${response.status}`);
                 if (result.error) throw new Error(result.error);
                 uploadSucceeded = true;
             } catch (e) {
-                alert(e.message || "保存失败！");
+                dialog.alert(e.message || "保存失败！", { variant: 'danger' });
             } finally {
                 processingTaskId.value = null;
                 await fetchTasks();

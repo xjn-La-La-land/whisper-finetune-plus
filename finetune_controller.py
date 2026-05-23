@@ -2,13 +2,14 @@
 import os
 import asyncio
 import json
-import sqlite3
 import time
 import sys
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
-from shared_state import GPUStatus, GPU_STATE
+from shared_state import GPUStatus, GPU_STATE, GPU_LOCK
+from utils.db import get_db
+from utils.auth import get_current_user, get_current_user_from_query
 
 # 尝试导入 modelscope
 try:
@@ -43,36 +44,31 @@ def _is_user_training(username: str) -> bool:
     )
 
 
-def _upsert_user_model(username: str, model_name: str):
+async def _upsert_user_model(username: str, model_name: str):
     now_ts = int(time.time())
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        '''
-        INSERT INTO models (username, model_name, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(username, model_name)
-        DO UPDATE SET updated_at = excluded.updated_at
-        ''',
-        (username, model_name, now_ts, now_ts)
-    )
-    conn.commit()
-    conn.close()
+    async with get_db() as conn:
+        await conn.execute(
+            '''
+            INSERT INTO models (username, model_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(username, model_name)
+            DO UPDATE SET updated_at = excluded.updated_at
+            ''',
+            (username, model_name, now_ts, now_ts)
+        )
+        await conn.commit()
 
 
-def _model_name_exists(username: str, model_name: str) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        'SELECT 1 FROM models WHERE username = ? AND model_name = ? LIMIT 1',
-        (username, model_name)
-    )
-    exists = c.fetchone() is not None
-    conn.close()
-    return exists
+async def _model_name_exists(username: str, model_name: str) -> bool:
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT 1 FROM models WHERE username = ? AND model_name = ? LIMIT 1',
+            (username, model_name)
+        )
+        return await cursor.fetchone() is not None
 
+# username 已经从请求体中移除，由 JWT 注入（current_user）
 class FinetuneRequest(BaseModel):
-    username: str
     model_name: str = Field(..., min_length=1, max_length=80, description="用户自定义模型名")
     learning_rate: float = Field(default=2e-4, description="学习率")
     epochs: int = Field(default=20, ge=1, le=200, description="训练轮数")
@@ -87,7 +83,6 @@ class FinetuneRequest(BaseModel):
     base_model: str = Field(..., min_length=1, description="Whisper 基础模型目录名")
 
 class PublishModelRequest(BaseModel):
-    username: str
     model_name: str
 
 
@@ -157,99 +152,120 @@ async def _run_base_model_download(model_name: str):
         print(f"[base-model-download] {model_name} 下载异常: {e}")
 
 
-async def run_finetune_process(req: FinetuneRequest):
+async def run_finetune_process(username: str, req: FinetuneRequest):
     """
     这是一个后台任务，负责实际拉起 finetune.py 进程并等待它结束。
+
+    设计要点：
+      * 整个函数体包在顶层 try/finally 里，任何异常路径都必须释放 GPU 锁。
+        （此前 open(web_log_path) 在 try 块外面，若它抛异常 GPU_STATE 会永久卡在 TRAINING。）
+      * username 作为独立参数，而不是 req.username。因为 P0-1 后 FinetuneRequest 已不含 username。
     """
-    dataset_dir = os.path.join(PROJECT_ROOT, "dataset", req.username)
-    output_dir = os.path.join(PROJECT_ROOT, "output", req.username, req.model_name)
-    web_log_path = os.path.join(dataset_dir, "training_log.jsonl")
-    base_model_path = os.path.join(BASE_MODELS_DIR, req.base_model)
-
-    # 先在后端侧主动清空旧日志，避免 SSE 先读到旧文件后被训练进程 truncate 导致读指针卡在 EOF
-    with open(web_log_path, "w", encoding="utf-8"):
-        pass
-
-    # 构造执行命令
-    cmd = [
-        "python", "finetune.py",
-        f"--train_data={os.path.join(dataset_dir, 'train.json')}",
-        f"--test_data={os.path.join(dataset_dir, 'test.json')}",
-        f"--output_dir={output_dir}",
-        f"--web_log_path={web_log_path}",
-        f"--base_model={base_model_path}",
-        # 动态接收前端传来的值
-        f"--warmup_steps={req.warmup_steps}",
-        f"--learning_rate={req.learning_rate}",
-        f"--min_audio_len={req.min_audio_len}",
-        f"--max_audio_len={req.max_audio_len}",
-        
-        f"--use_adalora={str(req.use_adalora)}",
-        f"--use_8bit={str(req.use_8bit)}",
-        f"--fp16={str(req.fp16)}",
-
-        f"--num_train_epochs={req.epochs}",
-        f"--per_device_train_batch_size={req.batch_size}",
-        f"--per_device_eval_batch_size={req.batch_size}",
-        f"--gradient_accumulation_steps={req.accumulation_steps}"
-    ]
-
     try:
-        # 使用 asyncio.create_subprocess_exec 异步拉起进程，不阻塞主线程
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        # 等待微调进程结束 (这里可能需要几十分钟到几个小时)
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode == 0:
-            print(f"[{req.username}] 微调成功！")
-            if os.path.exists(output_dir):
-                _upsert_user_model(req.username, req.model_name)
-                
-                # --- 新增：自动导出 TFLite ---
-                try:
-                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-                    from tflite_export import run_tflite_export
-                    tflite_output = os.path.join(output_dir, "whisper_model.tflite")
-                    checkpoint_final = os.path.join(output_dir, "checkpoint-final")
-                    
-                    print(f"[{req.username}] 正在自动将模型转换为 TFLite 格式...")
-                    # 调用之前封装好的函数
-                    success, msg = run_tflite_export(
-                        base_model_path=base_model_path,
-                        checkpoint_path=checkpoint_final,
-                        output_tflite_path=tflite_output
-                    )
-                    if success:
-                        print(f"[{req.username}] TFLite 自动导出完成：{tflite_output}")
-                    else:
-                        print(f"[{req.username}] TFLite 自动导出失败：{msg}")
-                except Exception as ex:
-                    print(f"[{req.username}] TFLite 导出过程中出现异常: {ex}")
-                # -----------------------------
+        dataset_dir = os.path.join(PROJECT_ROOT, "dataset", username)
+        output_dir = os.path.join(PROJECT_ROOT, "output", username, req.model_name)
+        # 日志按模型隔离：output/{username}/{model_name}/training_log.jsonl
+        # 同一用户连续训练多个模型时各自独立，SSE 读取不会串流
+        web_log_path = os.path.join(output_dir, "training_log.jsonl")
+        base_model_path = os.path.join(BASE_MODELS_DIR, req.base_model)
+
+        # 防御性创建输出目录（finetune.py 也会自己建，这里兜底确保 open(web_log_path) 不报错）
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 先在后端侧主动清空旧日志，避免 SSE 先读到旧文件后被训练进程 truncate 导致读指针卡在 EOF
+        with open(web_log_path, "w", encoding="utf-8"):
+            pass
+
+        # 构造执行命令
+        cmd = [
+            "python", "finetune.py",
+            f"--train_data={os.path.join(dataset_dir, 'train.json')}",
+            f"--test_data={os.path.join(dataset_dir, 'test.json')}",
+            f"--output_dir={output_dir}",
+            f"--web_log_path={web_log_path}",
+            f"--base_model={base_model_path}",
+            # 动态接收前端传来的值
+            f"--warmup_steps={req.warmup_steps}",
+            f"--learning_rate={req.learning_rate}",
+            f"--min_audio_len={req.min_audio_len}",
+            f"--max_audio_len={req.max_audio_len}",
+
+            f"--use_adalora={str(req.use_adalora)}",
+            f"--use_8bit={str(req.use_8bit)}",
+            f"--fp16={str(req.fp16)}",
+
+            f"--num_train_epochs={req.epochs}",
+            f"--per_device_train_batch_size={req.batch_size}",
+            f"--per_device_eval_batch_size={req.batch_size}",
+            f"--gradient_accumulation_steps={req.accumulation_steps}"
+        ]
+
+        try:
+            # 使用 asyncio.create_subprocess_exec 异步拉起进程，不阻塞主线程
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # 等待微调进程结束 (这里可能需要几十分钟到几个小时)
+            stdout, stderr = await process.communicate()
+
+            if process.returncode == 0:
+                print(f"[{username}] 微调成功！")
+                if os.path.exists(output_dir):
+                    await _upsert_user_model(username, req.model_name)
+
+                    # --- 新增：自动导出 TFLite ---
+                    try:
+                        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+                        from tflite_export import run_tflite_export
+                        tflite_output = os.path.join(output_dir, "whisper_model.tflite")
+                        checkpoint_final = os.path.join(output_dir, "checkpoint-final")
+
+                        print(f"[{username}] 正在自动将模型转换为 TFLite 格式...")
+                        # 调用之前封装好的函数
+                        success, msg = run_tflite_export(
+                            base_model_path=base_model_path,
+                            checkpoint_path=checkpoint_final,
+                            output_tflite_path=tflite_output
+                        )
+                        if success:
+                            print(f"[{username}] TFLite 自动导出完成：{tflite_output}")
+                        else:
+                            print(f"[{username}] TFLite 自动导出失败：{msg}")
+                    except Exception as ex:
+                        print(f"[{username}] TFLite 导出过程中出现异常: {ex}")
+                    # -----------------------------
+                else:
+                    print(f"[{username}] 警告：未找到模型输出目录，无法写入模型记录")
             else:
-                print(f"[{req.username}] 警告：未找到模型输出目录，无法写入模型记录")
-        else:
-            print(f"[{req.username}] 报错：{stderr.decode()}")
+                print(f"[{username}] 报错：{stderr.decode()}")
+        except Exception as e:
+            print(f"执行微调脚本出错: {e}")
     except Exception as e:
-        print(f"执行微调脚本出错: {e}")
+        # 兜底：连日志路径、命令拼接都失败的极端情况
+        print(f"[{username}] 微调任务初始化失败: {e}")
     finally:
         # --- 释放 GPU 锁 ---
-        # 无论成功、失败还是崩溃，必须确保锁被释放！
-        GPU_STATE["status"] = GPUStatus.IDLE
-        GPU_STATE["current_user"] = None
+        # 无论成功、失败还是崩溃，必须确保状态被重置；放在 lock 内保证与其他
+        # 状态读写串行化（避免 release 和 acquire 交错出现"短暂 IDLE 又被人抢占"）。
+        async with GPU_LOCK:
+            GPU_STATE["status"] = GPUStatus.IDLE
+            GPU_STATE["current_user"] = None
+            GPU_STATE["current_model_name"] = None
 
 
 @router.post("/api/start_finetune")
-async def start_finetune(req: FinetuneRequest, background_tasks: BackgroundTasks):
+async def start_finetune(
+    req: FinetuneRequest,
+    background_tasks: BackgroundTasks,
+    current_user: str = Depends(get_current_user),
+):
     model_name = req.model_name.strip()
     if not model_name:
         raise HTTPException(status_code=400, detail="模型名称不能为空")
-    if _model_name_exists(req.username, model_name):
+    if await _model_name_exists(current_user, model_name):
         raise HTTPException(status_code=400, detail="模型名称已存在，请换一个名字")
     req.model_name = model_name
     req.base_model = req.base_model.strip()
@@ -259,25 +275,61 @@ async def start_finetune(req: FinetuneRequest, background_tasks: BackgroundTasks
     if req.base_model not in available_base_models:
         raise HTTPException(status_code=400, detail=f"基础模型不存在: {req.base_model}")
 
-    # --- 检查 GPU 锁 ---
-    if GPU_STATE["status"] != GPUStatus.IDLE:
+    # --- 数据集前置校验：在 GPU 上锁之前确认 train/test.json 真的存在 ---
+    # 否则 run_finetune_process 里的 open(web_log_path) 或子进程会失败，
+    # 而锁已经被占用。把校验前置可以保证错误以 400 返回前端，且 GPU 状态不变。
+    dataset_dir = os.path.join(PROJECT_ROOT, "dataset", current_user)
+    train_path = os.path.join(dataset_dir, "train.json")
+    test_path = os.path.join(dataset_dir, "test.json")
+    if not (os.path.exists(train_path) and os.path.exists(test_path)):
         raise HTTPException(
-            status_code=423, 
-            detail=f"当前 GPU 正处于 {GPU_STATE['status']} 状态，被用户 [{GPU_STATE['current_user']}] 占用，请稍后再试！"
+            status_code=400,
+            detail="数据集文件缺失，请先在「微调训练」面板生成数据集"
         )
-    
-    # 获取到了 GPU 空闲状态，上锁
-    GPU_STATE["status"] = GPUStatus.TRAINING
-    GPU_STATE["current_user"] = req.username
-    
-    # 丢给后台任务去执行，FastAPI 接口立刻向前端返回成功
-    background_tasks.add_task(run_finetune_process, req)
-    
+
+    # --- 原子化检查 + 上锁 ---
+    # 用 asyncio.Lock 把 "判断 IDLE → 改成 TRAINING" 包成一个不可分割的步骤，
+    # 否则两个并发的 start_finetune 都可能通过 IDLE 检查后同时改写状态。
+    async with GPU_LOCK:
+        if GPU_STATE["status"] != GPUStatus.IDLE:
+            raise HTTPException(
+                status_code=423,
+                detail=f"当前 GPU 正处于 {GPU_STATE['status']} 状态，被用户 [{GPU_STATE['current_user']}] 占用，请稍后再试！"
+            )
+        GPU_STATE["status"] = GPUStatus.TRAINING
+        GPU_STATE["current_user"] = current_user
+        # 记下正在训练的模型名，方便前端刷新后从 /api/gpu_status 恢复 SSE 连接
+        GPU_STATE["current_model_name"] = req.model_name
+
+    # 丢给后台任务去执行，username 作为独立参数传递（FinetuneRequest 已不含 username）
+    background_tasks.add_task(run_finetune_process, current_user, req)
+
     return {"message": "微调任务已在后台启动！"}
 
 
+@router.get("/api/check_model_name")
+async def check_model_name(
+    model_name: str,
+    current_user: str = Depends(get_current_user),
+):
+    """轻量校验接口：前端在用户失焦时调用，给出即时的"名称是否可用"反馈。
+
+    避免用户填完一长串训练参数才发现名称重复。
+    返回 {"available": bool, "reason": "empty"|"too_long"|"taken"|None}
+    """
+    name = model_name.strip()
+    if not name:
+        return {"available": False, "reason": "empty"}
+    # 与 FinetuneRequest.model_name 的 max_length 保持一致
+    if len(name) > 80:
+        return {"available": False, "reason": "too_long"}
+    if await _model_name_exists(current_user, name):
+        return {"available": False, "reason": "taken"}
+    return {"available": True, "reason": None}
+
+
 @router.get("/api/base_models")
-async def get_base_models():
+async def get_base_models(current_user: str = Depends(get_current_user)):
     return _build_base_model_payload()
 
 
@@ -286,7 +338,10 @@ class BaseModelDownloadRequest(BaseModel):
 
 
 @router.post("/api/base_models/download")
-async def download_base_model(req: BaseModelDownloadRequest):
+async def download_base_model(
+    req: BaseModelDownloadRequest,
+    current_user: str = Depends(get_current_user),
+):
     model_name = req.model_name.strip()
     if model_name not in SUPPORTED_BASE_MODELS:
         raise HTTPException(status_code=400, detail=f"不支持的基础模型: {model_name}")
@@ -307,17 +362,19 @@ async def download_base_model(req: BaseModelDownloadRequest):
     return {"message": f"{model_name} 下载任务已启动"}
 
 @router.get("/api/gpu_status")
-async def get_gpu_status():
-    """让前端可以查询当前是否有人在训练"""
+async def get_gpu_status(current_user: str = Depends(get_current_user)):
+    """让前端可以查询当前是否有人在训练。需要登录态。"""
     return GPU_STATE
 
 
-async def log_generator(username: str):
+async def log_generator(username: str, model_name: str):
     """
     异步生成器：持续监控 training_log.jsonl，实现类似 tail -f 的效果。
+
+    日志路径按 {username}/{model_name} 隔离，避免同一用户先后训练多个模型时
+    SSE 读到上一个模型的残留日志。
     """
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    log_path = os.path.join(PROJECT_ROOT, "dataset", username, "training_log.jsonl")
+    log_path = os.path.join(PROJECT_ROOT, "output", username, model_name, "training_log.jsonl")
 
     # 1. 等待日志文件生成
     # Hugging Face Trainer 需要跑完第一个 logging_steps 才会创建文件
@@ -327,11 +384,11 @@ async def log_generator(username: str):
         if not _is_user_training(username):
             yield f"data: {{\"status\": \"error\", \"message\": \"训练未启动或提前异常终止\"}}\n\n"
             return
-            
+
         if wait_time > 120:  # 设置 2 分钟超时
             yield f"data: {{\"status\": \"error\", \"message\": \"等待日志文件超时\"}}\n\n"
             return
-            
+
         await asyncio.sleep(1)
         wait_time += 1
 
@@ -340,8 +397,8 @@ async def log_generator(username: str):
         while True:
             line = f.readline()
             if not line:
-                # 如果文件被 truncate（例如新训练刚启动清空日志），读指针可能落在文件末尾之外
-                # 需要把指针拉回文件开头，才能继续读到新写入的数据
+                # 日志路径已按模型隔离，理论上不再会出现"前一次训练的残留"
+                # 但若文件被 truncate 仍要兜底处理（finetune.py 启动时也会清空一次）
                 current_pos = f.tell()
                 try:
                     file_size = os.path.getsize(log_path)
@@ -373,13 +430,20 @@ async def log_generator(username: str):
 
 
 @router.get("/api/train_stream")
-async def train_stream(username: str):
+async def train_stream(
+    model_name: str,
+    # SSE / EventSource 不能附加自定义 header，所以认证走 query token
+    current_user: str = Depends(get_current_user_from_query),
+):
     """
     前端通过 EventSource 调用的 SSE 流式接口。
+
+    认证方式：?token=<JWT>&model_name=<...>
+    （和其他接口的 `Authorization: Bearer` 不同，因为 EventSource API 不支持自定义 header）
     """
     # 返回 StreamingResponse，指定媒体类型为 text/event-stream
     return StreamingResponse(
-        log_generator(username),
+        log_generator(current_user, model_name),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -391,9 +455,11 @@ async def train_stream(username: str):
 
 
 @router.get("/api/train_history")
-async def get_train_history(username: str):
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    log_path = os.path.join(PROJECT_ROOT, "dataset", username, "training_log.jsonl")
+async def get_train_history(
+    model_name: str,
+    current_user: str = Depends(get_current_user),
+):
+    log_path = os.path.join(PROJECT_ROOT, "output", current_user, model_name, "training_log.jsonl")
 
     if not os.path.exists(log_path):
         return {"train_loss": [], "eval_loss": []}
@@ -421,9 +487,12 @@ async def get_train_history(username: str):
 
 
 @router.post("/api/publish_model")
-async def publish_model(req: PublishModelRequest):
+async def publish_model(
+    req: PublishModelRequest,
+    current_user: str = Depends(get_current_user),
+):
     # 检查 TFLite 模型文件是否存在
-    tflite_path = os.path.join(PROJECT_ROOT, "output", req.username, req.model_name, "whisper_model.tflite")
+    tflite_path = os.path.join(PROJECT_ROOT, "output", current_user, req.model_name, "whisper_model.tflite")
     if not os.path.exists(tflite_path):
         raise HTTPException(status_code=400, detail="该模型尚未生成 TFLite 文件，无法发布")
 
@@ -439,7 +508,7 @@ async def publish_model(req: PublishModelRequest):
 
     if not ms_token or not ms_repo:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="缺少 ModelScope 配置。请设置环境变量 MODELSCOPE_TOKEN 和 MODELSCOPE_REPO"
         )
 
@@ -447,67 +516,69 @@ async def publish_model(req: PublishModelRequest):
         api = HubApi()
         # login 是同步的，很快
         api.login(ms_token)
-        
+
         # 1. 同步 TFLite 模型
-        path_in_repo = f"{req.username}/whisper_model.tflite"
-        print(f"[{req.username}] 正在同步模型到 ModelScope 仓库: {ms_repo} ...")
+        path_in_repo = f"{current_user}/whisper_model.tflite"
+        print(f"[{current_user}] 正在同步模型到 ModelScope 仓库: {ms_repo} ...")
         await asyncio.to_thread(
             api.upload_file,
             path_or_fileobj=tflite_path,
             repo_id=ms_repo,
             path_in_repo=path_in_repo
         )
-        print(f"[{req.username}] ModelScope 模型同步成功: {path_in_repo}")
+        print(f"[{current_user}] ModelScope 模型同步成功: {path_in_repo}")
 
         # 2. 同时生成并同步 version.json
-        version_json_path = os.path.join(PROJECT_ROOT, "output", req.username, req.model_name, "version.json")
+        version_json_path = os.path.join(PROJECT_ROOT, "output", current_user, req.model_name, "version.json")
         with open(version_json_path, "w") as f:
             json.dump({"version_tag": version_tag}, f, indent=2)
-        
+
         await asyncio.to_thread(
             api.upload_file,
             path_or_fileobj=version_json_path,
             repo_id=ms_repo,
-            path_in_repo=f"{req.username}/version.json"
+            path_in_repo=f"{current_user}/version.json"
         )
-        print(f"[{req.username}] ModelScope version.json 同步成功: {req.username}/version.json")
-        
+        print(f"[{current_user}] ModelScope version.json 同步成功: {current_user}/version.json")
+
     except Exception as e:
-        print(f"[{req.username}] ModelScope 同步失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"同步至 ModelScope 失败: {str(e)}")
+        # 在抛给前端 / 写日志之前，把可能出现在异常文本里的 token 替换成 ***，
+        # 防止 ModelScope SDK 在 HTTP 错误体或 URL 里回显敏感凭据。
+        err_text = str(e)
+        if ms_token:
+            err_text = err_text.replace(ms_token, "***")
+        print(f"[{current_user}] ModelScope 同步失败: {err_text}")
+        raise HTTPException(status_code=500, detail=f"同步至 ModelScope 失败: {err_text}")
     # ----------------------------------
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # 1. 将该用户的所有模型设为未发布
-    c.execute('UPDATE models SET is_published = 0 WHERE username = ?', (req.username,))
-    
-    # 2. 将选中的模型设为发布状态，并更新版本号
-    c.execute(
-        'UPDATE models SET is_published = 1, version_tag = ? WHERE username = ? AND model_name = ?',
-        (version_tag, req.username, req.model_name)
-    )
-    
-    if c.rowcount == 0:
-        conn.close()
-        raise HTTPException(status_code=404, detail="未找到对应的模型记录")
-        
-    conn.commit()
-    conn.close()
-    
+    async with get_db() as conn:
+        # 1. 将该用户的所有模型设为未发布
+        await conn.execute('UPDATE models SET is_published = 0 WHERE username = ?', (current_user,))
+
+        # 2. 将选中的模型设为发布状态，并更新版本号
+        cursor = await conn.execute(
+            'UPDATE models SET is_published = 1, version_tag = ? WHERE username = ? AND model_name = ?',
+            (version_tag, current_user, req.model_name)
+        )
+
+        if cursor.rowcount == 0:
+            # 不需要再手动 conn.close()，async with 块退出时自动释放
+            raise HTTPException(status_code=404, detail="未找到对应的模型记录")
+
+        await conn.commit()
+
     return {
-        "message": "模型发布并同步至 ModelScope 成功", 
+        "message": "模型发布并同步至 ModelScope 成功",
         "version_tag": version_tag,
-        "repo_path": f"{ms_repo}/{req.username}"
+        "repo_path": f"{ms_repo}/{current_user}"
     }
 
 
 # 模型检查
 @router.get("/api/check_model")
-async def check_model(username: str):
+async def check_model(current_user: str = Depends(get_current_user)):
     """前端轮询或初始化时调用，检查该用户是否已经有训练好的模型"""
-    user_output_dir = os.path.join(PROJECT_ROOT, "output", username)
+    user_output_dir = os.path.join(PROJECT_ROOT, "output", current_user)
     if not os.path.isdir(user_output_dir):
         return {"has_model": False}
     has_content = any(os.scandir(user_output_dir))

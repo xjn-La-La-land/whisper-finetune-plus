@@ -146,18 +146,19 @@ def main() -> None:
         print(f"⚠️ uploads 目录不存在: {uploads_dir}")
         return
 
-    conn = sqlite3.connect(db_path)
-    ensure_schema(conn)
+    # CLI 脚本没有 event loop，用同步版的 get_db_sync 保证连接 close()。
+    from utils.db import get_db_sync
 
     total_inserted = 0
     total_updated = 0
-    users = sorted([p.name for p in uploads_dir.iterdir() if p.is_dir()])
-    for username in users:
-        inserted, updated = sync_one_user(conn, uploads_dir, username)
-        total_inserted += inserted
-        total_updated += updated
+    with get_db_sync(db_path=str(db_path)) as conn:
+        ensure_schema(conn)
 
-    conn.close()
+        users = sorted([p.name for p in uploads_dir.iterdir() if p.is_dir()])
+        for username in users:
+            inserted, updated = sync_one_user(conn, uploads_dir, username)
+            total_inserted += inserted
+            total_updated += updated
 
     print("✅ 音频扫描同步完成")
     print(f"   - 用户数: {len(users)}")

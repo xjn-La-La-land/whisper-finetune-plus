@@ -3,10 +3,12 @@
 import os
 import json
 import random
-import sqlite3
 import soundfile as sf
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from utils.db import get_db
+from utils.auth import get_current_user
 
 # 实例化 Router
 router = APIRouter()
@@ -17,16 +19,15 @@ DB_PATH = os.path.join(DATA_DIR, "tasks.db")
 DATASET_DIR = "dataset"
 
 # 定义前端传入的数据模型
+# username 从 JWT 取，body 里只剩 test_ratio
 class DatasetBuildRequest(BaseModel):
-    username: str
     test_ratio: float = Field(default=0.05, ge=0.0, le=0.5, description="测试集比例")
 
 
 @router.get("/api/check_dataset")
-async def check_dataset(username: str):
+async def check_dataset(current_user: str = Depends(get_current_user)):
     """检查用户是否已经生成 train/test 数据集文件，供前端刷新后恢复步骤状态。"""
-    username = username.strip()
-    user_data_dir = os.path.join(DATASET_DIR, username)
+    user_data_dir = os.path.join(DATASET_DIR, current_user)
     train_path = os.path.join(user_data_dir, "train.json")
     test_path = os.path.join(user_data_dir, "test.json")
 
@@ -35,20 +36,24 @@ async def check_dataset(username: str):
     return {"has_dataset": has_train and has_test}
 
 @router.post("/api/build_dataset")
-async def build_dataset(request: DatasetBuildRequest):
-    username = request.username.strip()
+async def build_dataset(
+    request: DatasetBuildRequest,
+    current_user: str = Depends(get_current_user),
+):
+    username = current_user
     test_ratio = request.test_ratio
-    
+
     # 1. 确定用户的专属数据集输出目录
     user_data_dir = os.path.join(DATASET_DIR, username)
     os.makedirs(user_data_dir, exist_ok=True)
     
     # 2. 从数据库获取该用户已完成录音的有效数据
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT audio_path, text_content FROM tasks WHERE username = ? AND is_completed = 1', (username,))
-    rows = c.fetchall()
-    conn.close()
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT audio_path, text_content FROM tasks WHERE username = ? AND is_completed = 1',
+            (username,)
+        )
+        rows = await cursor.fetchall()
 
     if not rows:
         raise HTTPException(status_code=400, detail="没有找到已完成的录音任务，请先录制音频！")
