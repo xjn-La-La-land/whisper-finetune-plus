@@ -1,6 +1,6 @@
 const { ref, computed, onMounted, onUnmounted, nextTick } = Vue;
 import * as dialog from './dialog.js?v=1.1';
-import { apiFetch } from './api.js?v=1.1';
+import { apiFetch, sseUrl } from './api.js?v=1.1';
 
 export default {
     template: '#tpl-audio-collector',
@@ -178,6 +178,12 @@ export default {
             if (e.key === 'ArrowRight') nextFocusTask();
         };
 
+        // 生成受保护音频接口的 URL；token 走 query 因为 <audio> 不能附带 header
+        const audioSrc = (task) => {
+            if (!task || !task.is_completed) return null;
+            return sseUrl(`/api/audio/${task.id}`, { v: task.updated_at });
+        };
+
         // 组件挂载时拉取数据并监听键盘
         onMounted(() => {
             fetchTasks();
@@ -189,11 +195,12 @@ export default {
             window.removeEventListener('keydown', handleKeydown);
         });
 
-        return { 
+        return {
             tasks, txtInput, uploadTxt, startRecording, stopRecording, recordingTaskId, processingTaskId,
             newTaskText, addTask, editingTaskId, editingTaskText, startEditing, saveEdit, cancelEdit, deleteTask, clearAllTasks,
             completedCount, progressPercentage,
-            focusedTaskIndex, focusedTask, openFocusMode, closeFocusMode, prevFocusTask, nextFocusTask
+            focusedTaskIndex, focusedTask, openFocusMode, closeFocusMode, prevFocusTask, nextFocusTask,
+            audioSrc
         }
     }
 }

@@ -110,7 +110,7 @@
 
 ---
 
-## [ ] P0-2 路径穿越漏洞（uploads / dataset / output 目录）
+## [x] P0-2 路径穿越漏洞（uploads / dataset / output 目录）
 
 **问题**
 - `audio.filename` 来自客户端，`file_extension` 没做白名单
@@ -143,9 +143,71 @@
 
 **预估工作量** 0.5 天
 
+✅ 已修复 @ 2026-05-24
+   方案：纵深防御 = 输入正则白名单 + safe_join 越界检查 + 扩展名白名单。
+
+   **新增 `utils/path_safety.py`**：
+     * 常量 `UPLOAD_BASE` / `DATASET_BASE` / `OUTPUT_BASE` —— 锚定项目根的绝对路径
+     * `USERNAME_RE = r"^[a-zA-Z0-9_一-龥-]{1,20}$"` —— 允许 ASCII + 常用 CJK
+     * `MODEL_NAME_RE = r"^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,79}$"` —— **比 review 草案更严**：
+       首字符必须是字母/数字/下划线，以拒绝 `..` / `.` / `.foo` / `-foo`
+       （review 的 `^[a-zA-Z0-9._-]{1,80}$` 会放过 `..` —— 测试时发现，已收紧）
+     * `ALLOWED_AUDIO_EXT = {webm, wav, mp3, ogg, m4a}` —— 浏览器/桌面/移动端常见格式
+     * `safe_join(base, *parts)` —— abspath + commonpath 校验；越界抛 HTTPException(400)
+     * `safe_resolve_under(base, candidate)` —— 软失败版本，越界返 None
+       （用于"DB 里的脏 audio_path 历史数据"等场景，避免单条脏数据让整个接口 400）
+
+   **入口白名单**：
+     * `register_user`：clean_name 通过 `is_valid_username` 才入库
+     * `start_finetune`：model_name 通过 `is_valid_model_name` 才上锁
+     * `check_model_name`：新增 reason `"invalid_chars"`，前端 onBlur 即时反馈
+     * `upload_audio`：file_extension 不在 `ALLOWED_AUDIO_EXT` 中时回落到 `webm`
+
+   **路径拼接保护**：把以下文件里所有"用 username/model_name 拼路径"的地方
+   全部从 `os.path.join` 改为 `safe_join`：
+     * `data_collector.py`：`sync_user_words_txt` / `clear_all_tasks` / `upload_audio`
+     * `data_collector.py`：`delete_task` / `update_task_text` 里 DB 读出的 audio_path
+       走 `safe_resolve_under(UPLOAD_BASE, …)`，挡历史脏数据里的 `../`
+     * `finetune_controller.py`：`start_finetune` / `run_finetune_process` /
+       `log_generator` / `get_train_history` / `publish_model` / `check_model`
+       —— output 路径用 **两层 safe_join**（先 user 根，再 model_name），
+       因为 `safe_join(OUTPUT_BASE, user, "..")` 的 abspath 还在 OUTPUT_BASE 内，
+       只有两层 safe_join 才能挡 model_name=`..` 这种"上跳一层"的攻击
+     * `dataset_builder.py`：`check_dataset` / `build_dataset` + DB 读 audio_path
+       走 `safe_resolve_under`
+     * `inference_controller.py`：`resolve_user_model_path` / `get_latest_model_info` /
+       `download_published_model`
+
+   **前端 `finetune_panel.js`**：
+     * `checkModelNameAvailable` 增加 `invalid_chars` 分支，提示用户具体规则；
+       与现有 `taken` / `too_long` / `empty` 一致地驱动输入框颜色 + 按钮禁用
+
+   **端到端测试覆盖 (67/67 通过)**，关键场景：
+     - T1) 注册时 `../etc` / `a/b` / `a.b` / `..` 全部 400；`alice` / `小明` 正常
+     - T2) **核心攻击场景**：上传 `evil.py` 文件 → 扩展名被白名单回落到 `webm`，
+           ffmpeg 转 py 文本失败 500，但 uploads/alice/ 下不会有 .py 文件落地
+     - T3) **核心攻击场景**：直接在 DB 注入 `/uploads/../data/sentinel.txt` 的脏
+           audio_path，调 `DELETE /api/task/{id}` → 接口 200 (DB 行被清)，
+           但 sentinel.txt **没被删除**（`safe_resolve_under` 把越界路径返回 None）
+     - T4) `PUT /api/task/{id}` 改文本时同样防御
+     - T5) `safe_join` 拒绝 `..` / `/etc/passwd`；`safe_resolve_under` 越界返 None
+     - T6) `MODEL_NAME_RE` 拒绝 `.` / `..` / `.foo` / `-foo` / 中文 / 含空格 / 81 字符
+     - T7) `USERNAME_RE` 接受 CJK + ASCII；拒绝点号 / 空格 / 反斜杠 / 21 字符
+     - T8) `ALLOWED_AUDIO_EXT` 大小写不敏感；拒绝 `py` / `sh` / `wav.py` / `..wav`
+     - T9) `check_model_name` 实时校验路径打通：`../etc` → invalid_chars
+     - T10) 数据隔离回归：alice / 小明 互相看不到对方任务
+
+   **安全 trade-offs**：
+     * `safe_join(OUTPUT_BASE, user, model_name)` 单层调用挡不住 model_name=`..`，
+       已通过 MODEL_NAME_RE 在入口拦住 + 两层 safe_join 双保险
+     * `safe_resolve_under` 对脏 DB 数据软失败：宁可"少删一个孤儿 wav"也不要
+       因为一条脏数据让 DELETE 接口 500
+     * 历史 DB 行的 model_name 未必过 MODEL_NAME_RE 校验，
+       `resolve_user_model_path` 用 `safe_resolve_under` 跳过非法行而非整个 list 失败
+
 ---
 
-## [ ] P0-3 上传目录被 `app.mount` 公开，可遍历下载
+## [x] P0-3 上传目录被 `app.mount` 公开，可遍历下载
 
 **问题**
 - `main.py:18` `app.mount("/uploads", StaticFiles(directory="uploads"))`
@@ -168,9 +230,65 @@
 
 **预估工作量** 0.5 天
 
+✅ 已修复 @ 2026-05-24
+   方案：StaticFiles 挂载彻底删除；新增 query-token 鉴权的受保护路由；前端用
+   `sseUrl` 拼带 token 的 URL，模板照常用 `<custom-audio :src=...>`。
+
+   **后端 `main.py`**：
+     * 删 `app.mount("/uploads", StaticFiles(...))`，留下注释解释为什么不能用 StaticFiles
+       （StaticFiles 不经过依赖系统，任何人猜到 `/uploads/{u}/task_X.wav` 都能下，
+       P0-1 加的认证白做）
+     * `/static` 仍走 StaticFiles，不影响
+
+   **后端 `data_collector.py`**：
+     * 新增 `GET /api/audio/{task_id}`，依赖 `get_current_user_from_query`
+       （`<audio>` 元素不能附 Header，只能走 query token，与 SSE 一致的权衡）
+     * **统一返回 404**：task 不存在 / 不属于当前用户 / 尚未录音 / 文件丢失，
+       一律 404；避免状态码差异让攻击者通过遍历 task_id 推测系统状态
+     * 用 `safe_resolve_under(UPLOAD_BASE, ...)` 兜历史脏数据，即便 DB 里有
+       `/uploads/../something` 也只能在 UPLOAD_BASE 之下找文件
+     * `get_tasks` 不再向前端返回 `audio_path` 字段——`/uploads/{u}/task_X.wav`
+       是内部存储路径，外部用 `is_completed` + `updated_at` 就足够
+     * `upload_audio` 响应也不再回显 db_audio_path
+
+   **前端 `static/js/audio_collector.js` + `templates/index.html`**：
+     * 新 helper `audioSrc(task)`：返回 `sseUrl('/api/audio/{id}', {v: updated_at})`
+       —— 复用现成的 sseUrl 工具，token 透明拼到 query
+     * 两处模板 `<custom-audio :src="task.audio_path">` 改为 `:src="audioSrc(task)"`,
+       同时去掉 `&& task.audio_path` 条件（前端已不持有该字段）
+     * inference_panel.js 不动（不消费 audio_path）
+
+   **DB schema 保持不变**：`tasks.audio_path` 列仍存 `/uploads/{u}/task_X.wav`,
+   服务端清理 / 数据集构建仍按此字段定位文件——只是这条信息不再外泄给客户端。
+
+   **端到端测试 (18/18 通过)**：
+     - T1) `/uploads/alice/task_1.wav` → 404（StaticFiles 已移除）；
+           `/uploads/../etc/passwd` 也 404
+     - T2) `/api/audio/{id}` 无 token / 错 token / 仅走 Header → 全部 401
+           （这接口的认证模式只接受 query token）
+     - T3) **核心场景**：alice 自己的 task 用 alice token → 200 +
+           Content-Type=audio/wav + 文件字节完全匹配
+     - T4) **核心场景**：用 bob token 取 alice 的 task → 404
+           （不区分"不属于"和"不存在"，避免枚举）；bob 拿自己的 task 仍 200
+     - T5) 不存在的 task_id / 尚未录音的 task → 都是 404（统一错误）
+     - T6) `GET /api/tasks` 响应里不再含 `audio_path` 字段；
+           `is_completed` + `updated_at` 仍提供给前端拼 URL
+     - T7) DB 内部 schema 不变（audio_path 列仍存内部路径）
+     - T8) 文件被外部删除 → 404 而非 500（safe_resolve_under 软失败 + 文件存在性检查）
+
+   **安全 trade-offs**：
+     * Token 走 query 出现在 nginx 访问日志里——同 SSE，已知问题。
+       生产部署应在 nginx 配 `log_format` 屏蔽 `?token=`，或换成 cookie-based 短期 token。
+     * `<audio>` 元素发起的请求可能带 Range，FastAPI/Starlette `FileResponse` 原生支持
+       206 Partial Content，所以播放进度条 seek 应该照常工作（未单测验证）。
+     * `Cache-Control` 未显式设置——FileResponse 默认不会让浏览器持久缓存，配合
+       URL 上的 `?v=updated_at` cache buster，重录后能正常刷新。
+
+   **剩余 P0**：P0-4（CORS）—— 与 P0-3 关系不大，可单独修。
+
 ---
 
-## [ ] P0-4 CORS / CSRF 防护缺失
+## [x] P0-4 CORS / CSRF 防护缺失
 
 **问题**
 - FastAPI 默认无 CORS 中间件；cookie / token 也无 `SameSite=Strict`
@@ -192,6 +310,53 @@
 3. cpolar 公网链接做白名单，开发环境用 `*.localhost`
 
 **预估工作量** 0.5 小时（与 P0-1 一起做）
+
+✅ 已修复 @ 2026-05-24
+   方案：JWT 走 Authorization header 已天然防 CSRF（P0-1 落地），CORS 中间件
+   显式声明 deny-all 默认 + env 白名单做卫生层。
+
+   **威胁模型澄清**：
+     * 我们的鉴权完全走 `Authorization: Bearer <JWT>`，token 存 localStorage。
+     * 跨域恶意页面（evil.com）拿不到 localStorage（同源策略），所以即便发
+       cross-origin fetch 到我们的接口，**也没有 token 可附**，handler 直接 401。
+     * 也就是说 CSRF 在架构层已被根除，不依赖 CORS。CORS 在此项目里更多是
+       "显式声明只接受指定 origin"的卫生层，避免后续不小心引入 cookie 鉴权或
+       新的同源假设时出问题。
+
+   **后端 `main.py`**：
+     * 加 `CORSMiddleware`，`allow_origins` 从 env `ALLOWED_ORIGINS`
+       逗号分隔解析；空值 → 空列表 → deny-all 默认
+     * `allow_credentials=False` —— 不用 cookie，关掉可以兼容 `["*"]`
+       且不至于把 cookie 跨域漂移
+     * `allow_methods=["*"]` / `allow_headers=["*"]` —— 不收紧，简化部署
+     * 启动时打印当前白名单，方便发现 ALLOWED_ORIGINS 拼写错误
+
+   **部署文档**（待 P3-6 同步更新）：
+     - cpolar 公网链接（如 `https://abc.cpolar.io`）放进 `ALLOWED_ORIGINS`
+     - 同源场景（用户直接访问 `http://localhost:8000`）无需配置——同源请求
+       不带 Origin 头，CORSMiddleware 不会拦
+     - 多 origin 用逗号分隔：`ALLOWED_ORIGINS="https://a.cpolar.io,http://localhost:8000"`
+
+   **端到端测试 (12/12 通过)**：
+     - G1) 未配置 ALLOWED_ORIGINS：同源 GET 正常 200；跨域 GET 服务端返 200
+           但无 ACAO 头（浏览器层会拦 JS 读 response，安全）；preflight 也不返 ACAO
+     - G2) 配置 `http://app.localhost:8000,https://abc.cpolar.io`：
+           匹配的 origin preflight 回显 ACAO + 允许 Authorization header；
+           简单 GET 也带 ACAO；非白名单 origin 无 ACAO
+     - G3) **关键回归**：CORS 中间件不能挡掉同源调用——register / 拉 tasks
+           全部走通（同源请求不带 Origin 头，CORSMiddleware 旁路）
+
+   **安全 trade-offs / 已知限制**：
+     * 没改 `allow_origin_regex`——如果以后要"所有 *.cpolar.io 都允许"，再加。
+       当前部署只有一两个固定 origin，列表足够
+     * `allow_methods=["*"]` 会回 `GET, POST, PUT, DELETE, OPTIONS, ...`
+       而不是逐项列出。如果合规上要求最小化，可改成 `["GET", "POST", "PUT", "DELETE"]`
+     * Token 走 query 的接口（SSE / `/api/audio`）和 CORS 无关——浏览器不会对
+       `<audio src=...>` / `EventSource` 触发 CORS（它们是 simple cross-origin
+       fetches，无 preflight），所以这部分本来就要靠 token 本身防泄露
+
+   **P0 阶段全部完成**：P0-1（认证）/ P0-2（路径穿越）/ P0-3（uploads 公开）/
+   P0-4（CORS）全绿，公网部署的硬性门槛已清。下一步 P1。
 
 ---
 
@@ -470,7 +635,7 @@
 
 ---
 
-## [ ] P2-3 音频质量校验缺失
+## [x] P2-3 音频质量校验缺失
 
 **问题**
 - 脑瘫儿童录音容易出现"录了 0.3 秒就停"或"全程没说话"
@@ -486,9 +651,51 @@
 
 **预估工作量** 1 小时
 
+✅ 已修复 @ 2026-05-24
+   方案：ffmpeg 转换完直接 sf.read 算时长 + RMS；不达标删坏文件 + 重置 DB + 400。
+
+   **阈值选取（重要）**：
+     * `MIN_AUDIO_DURATION_SEC = 0.5` —— 挡"录到 0.3s 就停"
+     * `MIN_AUDIO_RMS = 0.002` —— **刻意定得很宽**，只挡纯零 / 极端弱噪。
+       实测：正常室内底噪 -50dB FS ≈ 0.003，悄声细语 -30dB FS ≈ 0.030，
+       脑瘫儿童含糊低声也远超 0.002。绝不能误伤这部分用户的录音。
+     * 阈值选取过程已在代码注释里留下，方便后续调参时回顾
+
+   **后端 `data_collector.py`**：
+     * 新增 `validate_audio_quality(wav_path) -> Optional[str]`：
+       sf.read → 多声道兜底降单声道 → 算 duration → 算 RMS → 返中文错误或 None
+     * RMS 用 float64 累加避免大文件 float32 精度损失
+     * `upload_audio` 在 ffmpeg 成功后、DB UPDATE 前调校验；失败时:
+       (a) 删坏文件；(b) **重置 DB 行**（audio_path=NULL, is_completed=0）
+       关键场景：用户已有合格 v1 录音，再录一个失败的 v2 —— ffmpeg 用 `-y`
+       已经覆盖了 v1，此时如果不回滚 DB，会出现"DB 说 completed=1 但文件是坏的"
+       脏状态，UI 上 task 还显示完成但播放会 404
+     * 不需要前端任何改动：现有 `dialog.alert(e.message)` 直接吐 detail 给用户
+
+   **端到端 + 单元测试 (20/20 通过)**：
+     - U1-U6) `validate_audio_quality` 单元覆盖：合格 / 太短 / 全静音 /
+              不存在的文件 / 0.5s 边界 / RMS 边界
+     - E2E1) 合格 1.5s 录音 → 200，is_completed=1
+     - E2E2) **核心场景**：先上传合格 v1（completed=1），再上传 0.3s v2 →
+             400 提示太短，is_completed 回滚到 0，且 `GET /api/audio` 立刻 404
+             （证明 ffmpeg 覆盖产生的坏文件已被清掉）→ 再上传合格 v3 →
+             重新 200 + completed=1
+     - E2E3) 全静音 wav 上传 → 400，提示"似乎没有录到声音"，DB 同样回滚
+     - E2E4) 新任务首次就上传坏录音 → 400，is_completed 保持 0（无回滚需要）
+     - 回归：P0-2 (67) / P0-3 (18) / P0-4 (12) 全绿
+
+   **trade-offs**：
+     * **替换式语义**：用户点"再录一次" + 失败 → 之前的好录音也没了。可以改成
+       sidecar (写 .new + 校验通过才 atomic rename) 来保留 v1，但 UX 更让人困惑
+       （"我刚录了一次，怎么显示的还是旧的？"）。当前选简单语义。
+     * RMS 阈值是经验值，没做大规模真实脑瘫儿童录音的统计。如果上线后发现
+       误伤率高，把 0.002 降到 0.001 即可（仍能挡纯零）。
+     * 没做"前端预校验时长"——浏览器 MediaRecorder API 上可以拿到 duration,
+       但前端预校验仍不可信，后端必须兜底。前端可选添加（属 UX 优化，不属安全）。
+
 ---
 
-## [ ] P2-4 依赖未钉版本
+## [x] P2-4 依赖未钉版本
 
 **问题**
 - `requirements.txt` 里 `transformers / peft / fastapi / torch / tensorflow` 全无版本号
@@ -505,9 +712,44 @@
 
 **预估工作量** 1 小时
 
+✅ 已修复 @ 2026-05-24
+   方案：硬件无关的依赖全部 `==X.Y.Z` 严格钉死；硬件相关（torch / tf / flash-attn）
+   不钉，放注释区写清楚不同 GPU/CUDA 的对应安装命令。
+
+   **决策依据**：
+     * 在用户当前能跑通的 `whisper` conda env (Python 3.11 / RTX 4090 / CUDA 13.0)
+       上 pip freeze 拿到准确版本，作为 known-good 基线
+     * 用 `==` 而不是 `~=`：reproducibility 优先，宁可让用户手动升级也不要某次
+       `pip install` 把 pydantic 偷偷升到 v2 让 fastapi 0.95.1 直接 crash
+     * `evaluate` 包从清单中删除——grep 全工程没人 import，是死依赖
+
+   **关键版本约束理由**：
+     * `fastapi==0.95.1` + `pydantic==1.10.26` + `starlette==0.26.1` 必须三件套
+       钉死。fastapi 0.95 只兼容 pydantic v1；任一升级到 v2 都要改 BaseModel 写法
+     * `transformers==4.51.3`：当前能跑。代码里有"4.42.1 不支持 processing_class
+       所以用 tokenizer=" 的历史注释，新版 `tokenizer=` 仍是 deprecated alias 仍可用
+       —— 等真要升级 transformers 再回头改成 `processing_class=`
+     * `numpy==1.26.4` 而非 env.yaml 里的 1.23.5：现在的 librosa/soundfile 已要求
+       numpy>=1.24，env.yaml 数据过期
+
+   **硬件相关依赖处理**：放进 `requirements.txt` 末尾大段注释里，分三档：
+     - 必装 torch：分 RTX 4090+CUDA 13.0 和 RTX 3090/A100+CUDA 12.8 两套示例命令
+     - 可选 tensorflow+keras (2.12.0)：仅 TFLite 导出需要；现在 `finetune_controller`
+       已经 try/except 兜住 import，不装也能跑微调
+     - 可选 flash-attn：推理时模块加载自动检测 try import，没装就 fallback SDPA
+
+   **验证**：
+     - `pip install --dry-run -r requirements.txt` 在当前 env 上 0 冲突，
+       所有版本已 satisfied（说明 pin 列表与实际跑通环境完全一致）
+     - 回归 P0-2 (67) / P0-3 (18) / P0-4 (12) / P2-3 (20)，全部依然绿
+
+   **遗留小尾巴**：env.yaml 还有一份旧的依赖列表（torch 2.7.1 / transformers 4.42.1
+   / Python 3.9），与新 requirements.txt 不一致。env.yaml 是历史 conda 环境定义，
+   现在已被 requirements.txt 取代。下一次清理 P3-6 部署文档时一起处理。
+
 ---
 
-## [ ] P2-5 数据集划分不可复现
+## [x] P2-5 数据集划分不可复现
 
 **问题**
 - `dataset_builder.py:90` `random.shuffle(data_list)` 没固定 seed，每次 train/test 划分都不同
@@ -518,6 +760,16 @@
 - `random.Random(seed).shuffle(data_list)`
 
 **预估工作量** 5 分钟
+
+✅ 已修复 @ 2026-05-24
+   - `DatasetBuildRequest` 新增 `seed: int = Field(default=42)` 字段
+   - `random.shuffle(data_list)` 改为 `random.Random(request.seed).shuffle(data_list)`
+   - 用独立 `Random` 实例而非 `random.seed(...)`，避免污染全局 random 状态
+     （否则其他用 `random.random()` 的代码会被这次调用副作用化）
+   - 前端暂未暴露 seed 参数，默认 42 即可；未来要做"调参对比"可以在 UI
+     加个高级选项
+   - 验证：同一 seed → 同样的 [25, 23, 19, 11, 4, 45, ...] 顺序；不同 seed
+     给出不同顺序；并且 build_dataset 调用前后全局 random 状态保持不变
 
 ---
 

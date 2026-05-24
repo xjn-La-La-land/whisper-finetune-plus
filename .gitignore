@@ -5,3 +5,4 @@ __pycache__
 token.txt
 output
 whisper-base-models
+.claude/settings.local.json

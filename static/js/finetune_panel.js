@@ -57,6 +57,11 @@ export default {
                     modelNameStatus.value = { state: 'taken', message: '⚠ 该名称已被使用，请换一个' };
                 } else if (data.reason === 'too_long') {
                     modelNameStatus.value = { state: 'invalid', message: '⚠ 名称过长（最多 80 字符）' };
+                } else if (data.reason === 'invalid_chars') {
+                    modelNameStatus.value = {
+                        state: 'invalid',
+                        message: '⚠ 仅支持字母、数字、点、下划线、连字符，且首字符需为字母/数字/下划线'
+                    };
                 } else if (data.reason === 'empty') {
                     modelNameStatus.value = { state: 'idle', message: '' };
                 } else {

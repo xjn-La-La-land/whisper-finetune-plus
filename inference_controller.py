@@ -12,6 +12,7 @@ from zhconv import convert
 from utils.data_utils import remove_punctuation
 from utils.db import get_db
 from utils.auth import get_current_user
+from utils.path_safety import OUTPUT_BASE, safe_join, safe_resolve_under
 
 from shared_state import GPUStatus, GPU_STATE, GPU_LOCK, INFERENCE_CACHE
 
@@ -85,12 +86,18 @@ async def resolve_user_model_path(username: str):
         rows = [dict(row) for row in await cursor.fetchall()]
 
     valid_models = []
+    user_output_root = safe_join(OUTPUT_BASE, username)
     for row in rows:
-        # 推理使用的 PyTorch Checkpoint 路径
-        checkpoint_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "checkpoint-final")
-        # 客户端同步使用的 TFLite 路径
-        tflite_path = os.path.join(PROJECT_ROOT, "output", username, row["model_name"], "whisper_model.tflite")
-        
+        # 历史 DB 行的 model_name 可能没经过 MODEL_NAME_RE 校验，跳过非法行
+        # 而不是让一条脏数据让整个 list_models 接口 400
+        model_dir = safe_resolve_under(user_output_root, row["model_name"])
+        if not model_dir:
+            print(f"[user_models] 跳过非法 model_name: {row['model_name']}")
+            continue
+
+        checkpoint_path = safe_join(model_dir, "checkpoint-final")
+        tflite_path = safe_join(model_dir, "whisper_model.tflite")
+
         if os.path.exists(checkpoint_path):
             valid_models.append({
                 "model_name": row["model_name"],
@@ -121,9 +128,9 @@ async def get_latest_model_info(current_user: str = Depends(get_current_user)):
         return {"has_published": False}
 
     model_name, version_tag = row
-    tflite_path = os.path.join(PROJECT_ROOT, "output", current_user, model_name, "whisper_model.tflite")
-    
-    if not os.path.exists(tflite_path):
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    tflite_path = safe_resolve_under(user_output_root, os.path.join(model_name, "whisper_model.tflite"))
+    if not tflite_path or not os.path.exists(tflite_path):
         return {"has_published": False}
         
     file_size = os.path.getsize(tflite_path)
@@ -150,9 +157,9 @@ async def download_published_model(current_user: str = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="该用户尚未发布任何模型")
 
     model_name = row[0]
-    tflite_path = os.path.join(PROJECT_ROOT, "output", current_user, model_name, "whisper_model.tflite")
-    
-    if not os.path.exists(tflite_path):
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    tflite_path = safe_resolve_under(user_output_root, os.path.join(model_name, "whisper_model.tflite"))
+    if not tflite_path or not os.path.exists(tflite_path):
         raise HTTPException(status_code=404, detail="已发布的 TFLite 模型文件不存在")
 
     return FileResponse(

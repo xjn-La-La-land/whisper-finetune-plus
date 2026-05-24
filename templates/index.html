@@ -244,7 +244,7 @@
                             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>完成
                         </div>
                         
-                        <custom-audio v-if="task.is_completed && task.audio_path && processingTaskId !== task.id" :src="task.audio_path"></custom-audio>
+                        <custom-audio v-if="task.is_completed && processingTaskId !== task.id" :src="audioSrc(task)"></custom-audio>
                     </div>
                 </div>
                 
@@ -290,12 +290,12 @@
                                     </button>
                                 </div>
                                 
-                                <div v-if="focusedTask.is_completed && focusedTask.audio_path && processingTaskId !== focusedTask.id" class="mt-4 flex flex-col items-center gap-6 w-full">
+                                <div v-if="focusedTask.is_completed && processingTaskId !== focusedTask.id" class="mt-4 flex flex-col items-center gap-6 w-full">
                                     <div class="flex items-center gap-2 text-green-600 font-bold text-xl bg-green-50 px-6 py-2.5 rounded-full border border-green-200 shadow-sm">
                                         <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>录制成功！
                                     </div>
                                     <div class="transform scale-125 md:scale-150 origin-top mt-4">
-                                        <custom-audio :src="focusedTask.audio_path"></custom-audio>
+                                        <custom-audio :src="audioSrc(focusedTask)"></custom-audio>
                                     </div>
                                 </div>
                             </div>

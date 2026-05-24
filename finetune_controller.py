@@ -10,6 +10,12 @@ from fastapi.responses import StreamingResponse
 from shared_state import GPUStatus, GPU_STATE, GPU_LOCK
 from utils.db import get_db
 from utils.auth import get_current_user, get_current_user_from_query
+from utils.path_safety import (
+    DATASET_BASE,
+    OUTPUT_BASE,
+    is_valid_model_name,
+    safe_join,
+)
 
 # 尝试导入 modelscope
 try:
@@ -162,11 +168,14 @@ async def run_finetune_process(username: str, req: FinetuneRequest):
       * username 作为独立参数，而不是 req.username。因为 P0-1 后 FinetuneRequest 已不含 username。
     """
     try:
-        dataset_dir = os.path.join(PROJECT_ROOT, "dataset", username)
-        output_dir = os.path.join(PROJECT_ROOT, "output", username, req.model_name)
+        dataset_dir = safe_join(DATASET_BASE, username)
+        # output 路径必须两层 safe_join 才能挡住 model_name=".."，详见 path_safety.safe_join
+        user_output_root = safe_join(OUTPUT_BASE, username)
+        output_dir = safe_join(user_output_root, req.model_name)
         # 日志按模型隔离：output/{username}/{model_name}/training_log.jsonl
         # 同一用户连续训练多个模型时各自独立，SSE 读取不会串流
-        web_log_path = os.path.join(output_dir, "training_log.jsonl")
+        web_log_path = safe_join(output_dir, "training_log.jsonl")
+        # base_model 已被 start_finetune 用 _list_base_model_dirs 白名单校验
         base_model_path = os.path.join(BASE_MODELS_DIR, req.base_model)
 
         # 防御性创建输出目录（finetune.py 也会自己建，这里兜底确保 open(web_log_path) 不报错）
@@ -220,8 +229,8 @@ async def run_finetune_process(username: str, req: FinetuneRequest):
                     try:
                         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
                         from tflite_export import run_tflite_export
-                        tflite_output = os.path.join(output_dir, "whisper_model.tflite")
-                        checkpoint_final = os.path.join(output_dir, "checkpoint-final")
+                        tflite_output = safe_join(output_dir, "whisper_model.tflite")
+                        checkpoint_final = safe_join(output_dir, "checkpoint-final")
 
                         print(f"[{username}] 正在自动将模型转换为 TFLite 格式...")
                         # 调用之前封装好的函数
@@ -265,6 +274,12 @@ async def start_finetune(
     model_name = req.model_name.strip()
     if not model_name:
         raise HTTPException(status_code=400, detail="模型名称不能为空")
+    # model_name 会成为 output/{u}/{m}/ 的目录名，必须挡 `..` `/` 空格等危险字符
+    if not is_valid_model_name(model_name):
+        raise HTTPException(
+            status_code=400,
+            detail="模型名称只能包含字母、数字、点、下划线、连字符，首字符需为字母/数字/下划线，长度 1-80"
+        )
     if await _model_name_exists(current_user, model_name):
         raise HTTPException(status_code=400, detail="模型名称已存在，请换一个名字")
     req.model_name = model_name
@@ -278,9 +293,9 @@ async def start_finetune(
     # --- 数据集前置校验：在 GPU 上锁之前确认 train/test.json 真的存在 ---
     # 否则 run_finetune_process 里的 open(web_log_path) 或子进程会失败，
     # 而锁已经被占用。把校验前置可以保证错误以 400 返回前端，且 GPU 状态不变。
-    dataset_dir = os.path.join(PROJECT_ROOT, "dataset", current_user)
-    train_path = os.path.join(dataset_dir, "train.json")
-    test_path = os.path.join(dataset_dir, "test.json")
+    dataset_dir = safe_join(DATASET_BASE, current_user)
+    train_path = safe_join(dataset_dir, "train.json")
+    test_path = safe_join(dataset_dir, "test.json")
     if not (os.path.exists(train_path) and os.path.exists(test_path)):
         raise HTTPException(
             status_code=400,
@@ -323,6 +338,9 @@ async def check_model_name(
     # 与 FinetuneRequest.model_name 的 max_length 保持一致
     if len(name) > 80:
         return {"available": False, "reason": "too_long"}
+    # 与 start_finetune 同样的白名单，提前在 onBlur 时反馈而不是等用户填完所有参数
+    if not is_valid_model_name(name):
+        return {"available": False, "reason": "invalid_chars"}
     if await _model_name_exists(current_user, name):
         return {"available": False, "reason": "taken"}
     return {"available": True, "reason": None}
@@ -374,7 +392,13 @@ async def log_generator(username: str, model_name: str):
     日志路径按 {username}/{model_name} 隔离，避免同一用户先后训练多个模型时
     SSE 读到上一个模型的残留日志。
     """
-    log_path = os.path.join(PROJECT_ROOT, "output", username, model_name, "training_log.jsonl")
+    try:
+        user_output_root = safe_join(OUTPUT_BASE, username)
+        log_path = safe_join(user_output_root, model_name, "training_log.jsonl")
+    except HTTPException:
+        # SSE 不能直接抛 HTTPException，要以一帧 error 事件结束流
+        yield f"data: {{\"status\": \"error\", \"message\": \"模型名称非法\"}}\n\n"
+        return
 
     # 1. 等待日志文件生成
     # Hugging Face Trainer 需要跑完第一个 logging_steps 才会创建文件
@@ -459,7 +483,12 @@ async def get_train_history(
     model_name: str,
     current_user: str = Depends(get_current_user),
 ):
-    log_path = os.path.join(PROJECT_ROOT, "output", current_user, model_name, "training_log.jsonl")
+    try:
+        user_output_root = safe_join(OUTPUT_BASE, current_user)
+        log_path = safe_join(user_output_root, model_name, "training_log.jsonl")
+    except HTTPException:
+        # 非法 model_name 等同于"没训练过该模型"，给前端空历史而不是 400
+        return {"train_loss": [], "eval_loss": []}
 
     if not os.path.exists(log_path):
         return {"train_loss": [], "eval_loss": []}
@@ -491,8 +520,9 @@ async def publish_model(
     req: PublishModelRequest,
     current_user: str = Depends(get_current_user),
 ):
-    # 检查 TFLite 模型文件是否存在
-    tflite_path = os.path.join(PROJECT_ROOT, "output", current_user, req.model_name, "whisper_model.tflite")
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    model_output_dir = safe_join(user_output_root, req.model_name)
+    tflite_path = safe_join(model_output_dir, "whisper_model.tflite")
     if not os.path.exists(tflite_path):
         raise HTTPException(status_code=400, detail="该模型尚未生成 TFLite 文件，无法发布")
 
@@ -529,7 +559,7 @@ async def publish_model(
         print(f"[{current_user}] ModelScope 模型同步成功: {path_in_repo}")
 
         # 2. 同时生成并同步 version.json
-        version_json_path = os.path.join(PROJECT_ROOT, "output", current_user, req.model_name, "version.json")
+        version_json_path = safe_join(model_output_dir, "version.json")
         with open(version_json_path, "w") as f:
             json.dump({"version_tag": version_tag}, f, indent=2)
 
@@ -578,7 +608,7 @@ async def publish_model(
 @router.get("/api/check_model")
 async def check_model(current_user: str = Depends(get_current_user)):
     """前端轮询或初始化时调用，检查该用户是否已经有训练好的模型"""
-    user_output_dir = os.path.join(PROJECT_ROOT, "output", current_user)
+    user_output_dir = safe_join(OUTPUT_BASE, current_user)
     if not os.path.isdir(user_output_dir):
         return {"has_model": False}
     has_content = any(os.scandir(user_output_dir))

@@ -1,19 +1,73 @@
-aiofiles
-aiosqlite
-bcrypt
-bitsandbytes
-python-jose[cryptography]
-evaluate
-fastapi
-librosa
-numpy
-peft
-pydantic
-soundfile
-# torch==2.10.0+cu130
-tqdm
-transformers
-zhconv
-uvicorn
-python-multipart
-modelscope
+# ============================================================================
+# whisper-finetune-plus 依赖清单
+#
+# 本文件钉的版本，是在 `whisper` conda env (Python 3.11) + RTX 4090 + CUDA 13.0
+# 上实测全流程跑通过的组合。一般用法：
+#
+#     conda create -n asr python=3.11 -y && conda activate asr
+#     pip install -r requirements.txt
+#     # 然后单独按你的 GPU 装 torch（见文末"硬件相关依赖"小节）
+#
+# 为什么不把 torch 也钉在这里：torch 的 wheel 跟 CUDA 版本强绑定，钉死会让
+# 别的 GPU/CUDA 组合的人装不上。请按你的机器选 wheel。
+# ============================================================================
+
+# --- HuggingFace 生态 ---
+transformers==4.51.3
+peft==0.15.2
+bitsandbytes==0.49.1
+
+# --- ModelScope（两用：1) publish_model 发布微调后模型；2) download_whisper_models.py
+#     默认走 ModelScope 拉基础模型，对无代理用户友好。没装则两个流程都会失败）---
+modelscope==1.33.0
+
+# --- 音频处理 ---
+librosa==0.10.0
+soundfile==0.12.1
+numpy==1.26.4
+
+# --- FastAPI 后端 ---
+# fastapi 0.95.x 必须搭配 pydantic v1；任一升级到 v2 都需要改 BaseModel 写法
+fastapi==0.95.1
+starlette==0.26.1
+pydantic==1.10.26
+uvicorn==0.21.1
+python-multipart==0.0.22
+aiofiles==25.1.0
+aiosqlite==0.22.1
+
+# --- 认证（P0-1 引入）---
+bcrypt==5.0.0
+python-jose[cryptography]==3.5.0
+
+# --- 中文文本工具 ---
+zhconv==1.4.2
+tqdm==4.67.1
+
+# ============================================================================
+# 硬件相关依赖（不放进上面 pin 列表，按你机器情况单独装）
+# ============================================================================
+#
+# 【必装】torch —— wheel 跟 CUDA 版本强绑定
+#
+#   RTX 4090 + CUDA 13.0 + Python 3.11 （本仓库实测组合）：
+#     pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130
+#
+#   RTX 3090 / A100 + CUDA 12.8（env.yaml 历史组合）：
+#     pip install torch==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
+#
+#   其他组合到 https://pytorch.org/get-started/locally/ 查。
+#
+# 【可选】tensorflow + keras —— 仅 TFLite 导出需要
+#
+#   tflite_export.py 跑出的 .tflite 给安卓端用；不需要此功能可不装,
+#   finetune_controller 已用 try/except 包住 import，不会因此 fail。
+#   要启用：
+#     pip install tensorflow==2.12.0 keras==2.12.0
+#
+# 【可选】flash-attn —— 推理加速 (~10-20%)
+#
+#   inference_controller 启动时自动 try import；没装则用 PyTorch 内置的 SDPA
+#   (零依赖, 跨架构兼容)。要启用（要求 Ampere/Ada/Hopper, Blackwell 需 2.7+）:
+#     pip install flash-attn --no-build-isolation
+# ============================================================================

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from utils.db import get_db
 from utils.auth import get_current_user
+from utils.path_safety import DATASET_BASE, UPLOAD_BASE, safe_join, safe_resolve_under
 
 # 实例化 Router
 router = APIRouter()
@@ -19,17 +20,19 @@ DB_PATH = os.path.join(DATA_DIR, "tasks.db")
 DATASET_DIR = "dataset"
 
 # 定义前端传入的数据模型
-# username 从 JWT 取，body 里只剩 test_ratio
+# username 从 JWT 取，body 里只剩 test_ratio + seed
 class DatasetBuildRequest(BaseModel):
     test_ratio: float = Field(default=0.05, ge=0.0, le=0.5, description="测试集比例")
+    # 固定 seed 让 train/test 划分可复现，方便做"调参 → 对比"实验
+    seed: int = Field(default=42, description="train/test 划分使用的随机种子")
 
 
 @router.get("/api/check_dataset")
 async def check_dataset(current_user: str = Depends(get_current_user)):
     """检查用户是否已经生成 train/test 数据集文件，供前端刷新后恢复步骤状态。"""
-    user_data_dir = os.path.join(DATASET_DIR, current_user)
-    train_path = os.path.join(user_data_dir, "train.json")
-    test_path = os.path.join(user_data_dir, "test.json")
+    user_data_dir = safe_join(DATASET_BASE, current_user)
+    train_path = safe_join(user_data_dir, "train.json")
+    test_path = safe_join(user_data_dir, "test.json")
 
     has_train = os.path.exists(train_path)
     has_test = os.path.exists(test_path)
@@ -44,7 +47,7 @@ async def build_dataset(
     test_ratio = request.test_ratio
 
     # 1. 确定用户的专属数据集输出目录
-    user_data_dir = os.path.join(DATASET_DIR, username)
+    user_data_dir = safe_join(DATASET_BASE, username)
     os.makedirs(user_data_dir, exist_ok=True)
     
     # 2. 从数据库获取该用户已完成录音的有效数据
@@ -62,9 +65,15 @@ async def build_dataset(
     
     # 3. 遍历数据库记录，构造数据集格式
     for db_audio_path, text in rows:
-        # 【关键】：将数据库中的 Web 路径 (如 /uploads/xxx/1.wav) 转为服务器物理路径 (uploads/xxx/1.wav)
-        physical_audio_path = db_audio_path.lstrip('/')
-        
+        # DB 里的 web 路径 "/uploads/{u}/X.wav" 还原为 UPLOAD_BASE 下的物理路径,
+        # 走 safe_resolve_under 兜历史脏数据里的 `../`
+        clean = db_audio_path.split('?')[0].lstrip('/')
+        rel = clean[len('uploads/'):] if clean.startswith('uploads/') else clean
+        physical_audio_path = safe_resolve_under(UPLOAD_BASE, rel)
+        if not physical_audio_path:
+            print(f"警告: 非法 audio_path 跳过 {db_audio_path}")
+            continue
+
         if not os.path.exists(physical_audio_path):
             print(f"警告: 物理音频文件丢失 {physical_audio_path}")
             continue
@@ -91,16 +100,16 @@ async def build_dataset(
     if not data_list:
         raise HTTPException(status_code=400, detail="处理音频时全部失败，未能生成有效数据。")
 
-    # 4. 打乱并划分训练/测试集
-    random.shuffle(data_list)
+    # 4. 打乱并划分训练/测试集（用独立 Random 实例避免污染全局 random 状态）
+    random.Random(request.seed).shuffle(data_list)
     split_idx = max(1, int(len(data_list) * test_ratio)) # 至少保留1条做测试集
     
     test_data = data_list[:split_idx]
     train_data = data_list[split_idx:]
 
     # 5. 写入该用户专属的 JSON 文件（标准 JSON 数组，便于直接校验/查看）
-    train_path = os.path.join(user_data_dir, "train.json")
-    test_path = os.path.join(user_data_dir, "test.json")
+    train_path = safe_join(user_data_dir, "train.json")
+    test_path = safe_join(user_data_dir, "test.json")
 
     with open(train_path, 'w', encoding='utf-8') as f:
         json.dump(train_data, f, ensure_ascii=False, indent=2)
