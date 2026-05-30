@@ -94,7 +94,7 @@ cpolar http 8000
 
 首先是登录界面，可以输入用户名注册账号，或登录已有账号。用户名是每个用户唯一的标识哦！
 
-<img src="../assets/image-20260304113456616.png" alt="登录与注册" style="zoom:50%;" />
+<img src="../assets/login-page.png" alt="登录与注册" style="zoom:50%;" />
 
 ### 语音采集
 

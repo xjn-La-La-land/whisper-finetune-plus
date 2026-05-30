@@ -36,6 +36,153 @@
             box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35);
         }
 
+        /* ========================================================================
+           登录界面：梵高星空涂鸦风 动态背景。详见 TODO_LOGIN_BACKGROUND.md。
+           真·多图层合成：sky(纯星空底) + clouds(透明,视差横移) + foreground(透明,小人/地面,盖在云上)
+           + moon(透明,原地自转)，都放进 cover-frame 共享裁剪、天然对齐；再叠 闪烁星 + 月晕呼吸 + 暗角。
+           图层资产 static/img/login/{sky,clouds,foreground,moon}.webp。动效在 prefers-reduced-motion 下静止。
+           ===================================================================== */
+
+        /* L0 兜底深蓝（图片没加载/失败时也好看）*/
+        .login-stage {
+            overflow: hidden;
+            background: radial-gradient(120% 85% at 50% 6%, #16204a 0%, #0b1130 48%, #070b22 100%);
+            --mx: 0; --my: 0;   /* 由 login_parallax.js 按鼠标/陀螺仪更新（-1..1）*/
+        }
+
+        /* cover-frame：把"按 cover 裁剪的画布"做成居中容器，sky/clouds/moon 都铺在里面，
+           三层共享同一裁剪、天然对齐；月亮按画布百分比精确定位并"原地自转"。画布比 2752/1536≈1.7917 */
+        .cover-frame {
+            position: absolute; top: 50%; left: 50%; z-index: 0; pointer-events: none;
+            width: max(100vw, calc(100vh * 1.7917));
+            height: max(100vh, calc(100vw / 1.7917));
+            transform: translate(-50%, -50%);
+        }
+        .cf-layer { position: absolute; inset: 0; background-size: 100% 100%; background-repeat: no-repeat;
+            animation: layerFadeIn 1.1s ease both; }
+        /* L1 天空底（已去月去云、补星空，不透明）*/
+        .layer-sky    { background-image: url('/static/img/login/sky.webp?v=3'); }
+        /* L2 云（透明）：横向缓移 + 轻浮动，与静止的天空形成视差 */
+        .layer-clouds { background-image: url('/static/img/login/clouds.webp?v=4');
+            animation: layerFadeIn 1.1s ease both, clouddrift 28s ease-in-out infinite alternate; }
+        /* L2.5 前景（透明）：小人/长椅/地面，盖在云之上，静止不动 */
+        .layer-fg     { background-image: url('/static/img/login/foreground.webp?v=2'); }
+        /* L3 月晕（呼吸）+ 月亮（极慢自转）—— 月心在画布 50% / 19.5% */
+        .moon-glow {
+            position: absolute; left: 49%; top: 17.8%; width: 30%; aspect-ratio: 1;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle, rgba(253,224,138,.50), rgba(251,191,36,.12) 42%, transparent 68%);
+            animation: layerFadeIn 1.1s ease both, glowpulse 6s ease-in-out infinite;
+        }
+        .moon {
+            position: absolute; left: 49%; top: 17.8%; width: 12.1%;
+            transform: translate(-50%, -50%); transform-origin: 50% 50%;
+            animation: layerFadeIn 1.1s ease both, moonspin 90s linear infinite;
+        }
+
+        /* P4 极轻视差：各层按"深度"用 translate 偏移几像素（与上面的 transform 动画叠加；
+           前景 .layer-fg 不参与，像脚下的地面一样稳住）。变量为 0 时无偏移，故 reduced-motion 安全 */
+        .layer-sky        { translate: calc(var(--mx) * -9px)  calc(var(--my) * -9px); }
+        .layer-clouds     { translate: calc(var(--mx) * -24px) calc(var(--my) * -15px); }
+        .moon, .moon-glow { translate: calc(var(--mx) * -14px) calc(var(--my) * -14px); }
+        .layer-stars      { translate: calc(var(--mx) * -11px) calc(var(--my) * -11px); }
+
+        /* L4 叠加发光闪烁星：~100 颗，随机大小/相位，透明度+微缩放 闪烁（screen 混合融入底图）*/
+        .layer-stars { position: absolute; inset: 0; z-index: 2; pointer-events: none; mix-blend-mode: screen; }
+        .layer-stars .tw {
+            position: absolute; width: var(--sz, 5px); height: var(--sz, 5px);
+            margin: calc(var(--sz, 5px) / -2); border-radius: 50%;
+            background: radial-gradient(circle, #fff7d6 0%, #fcd34d 45%, transparent 72%);
+            filter: drop-shadow(0 0 4px rgba(253,224,138,.85));
+            animation: twinkle2 var(--d, 3.6s) ease-in-out infinite;
+        }
+        .layer-stars .tw.cool {
+            background: radial-gradient(circle, #e0f2fe 0%, #7dd3fc 45%, transparent 72%);
+            filter: drop-shadow(0 0 4px rgba(125,211,252,.8));
+        }
+        /* L6 氛围层：四周暗角，把视觉收拢到中部卡片（恒定，不脉动）*/
+        .layer-atmos {
+            position: absolute; inset: 0; z-index: 6; pointer-events: none;
+            background: radial-gradient(150% 125% at 50% 40%, transparent 50%, rgba(4,6,18,.62) 100%);
+        }
+
+        @keyframes layerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes clouddrift  { from { transform: scale(1.08) translateX(-1.3%); } to { transform: scale(1.08) translateX(1.3%); } }
+        @keyframes moonspin    { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
+        @keyframes glowpulse   { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+        @keyframes twinkle2    { 0%,100% { opacity: .25; transform: scale(.7); } 50% { opacity: 1; transform: scale(1.2); } }
+
+        /* —— 深色玻璃登录卡片（夜空主题）+ 入场动效 —— */
+        .login-card {
+            position: relative; z-index: 10;
+            background: rgba(15, 23, 42, .38);          /* 毛玻璃磨砂 + 较高透明度：质感在但更通透 */
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            border: 1px solid rgba(253, 224, 138, .26);
+            box-shadow: 0 30px 70px -20px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .08);
+            animation: cardIn .55s cubic-bezier(.16,1,.3,1) both;
+        }
+        /* 文字阴影，磨砂上更清晰 */
+        .login-card h2 { color: #f8fafc; text-shadow: 0 1px 10px rgba(0, 0, 0, .5); }
+        .login-card p  { color: #e2e8f0; text-shadow: 0 1px 8px rgba(0, 0, 0, .45); }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+
+        /* —— 麦克风徽章 + "正在聆听"涟漪 —— */
+        .mic-badge {
+            position: relative; width: 84px; height: 84px; margin: 0 auto 1.25rem;
+            border-radius: 9999px;
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 12px 30px -6px rgba(251,191,36,.55);
+        }
+        .mic-badge svg { width: 40px; height: 40px; color: #422006; position: relative; z-index: 1; }
+        .mic-badge .ripple {
+            position: absolute; inset: 0; border-radius: 9999px;
+            border: 2px solid rgba(251,191,36,.5);
+            animation: listen 3s ease-out infinite;
+        }
+        .mic-badge .ripple:nth-child(2) { animation-delay: 1s; }
+        .mic-badge .ripple:nth-child(3) { animation-delay: 2s; }
+        @keyframes listen { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.2); opacity: 0; } }
+
+        /* —— 深色输入框（聚焦时暖黄描边 + 图标点亮）—— */
+        .login-field { position: relative; }
+        .login-field > svg {
+            position: absolute; left: 1.05rem; top: 50%; transform: translateY(-50%);
+            width: 22px; height: 22px; color: rgba(226,232,240,.5); pointer-events: none; z-index: 1;
+            transition: color .2s;
+        }
+        .login-input {
+            padding-left: 3rem; text-align: left;
+            background: transparent;                       /* 透明：只留描边，露出卡片 */
+            border: 2px solid rgba(255,255,255,.22);
+            color: #f1f5f9;
+        }
+        .login-input::placeholder { color: rgba(226,232,240,.45); }
+        .login-input:focus {
+            outline: none;
+            border-color: rgba(251,191,36,.85);
+            background: rgba(255,255,255,.04);             /* 聚焦时极淡填充，仅作反馈 */
+            box-shadow: 0 0 0 4px rgba(251,191,36,.12);
+        }
+        .login-field:focus-within > svg { color: #fbbf24; }
+
+        /* —— 主按钮：暖金渐变（深底上对比最高的 CTA），深色文字 —— */
+        .login-btn-primary { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #422006; box-shadow: 0 12px 26px -8px rgba(251,191,36,.5); }
+        .login-btn-primary:hover { filter: brightness(1.06); }
+        /* —— 次按钮：深色幽灵态 —— */
+        .login-btn-ghost { background: rgba(255,255,255,.06); color: #fde68a; border: 2px solid rgba(253,224,138,.28); }
+        .login-btn-ghost:hover { background: rgba(255,255,255,.12); }
+
+        /* —— 尊重"减少动态"偏好：关掉所有登录动效，定格为静态美图 —— */
+        @media (prefers-reduced-motion: reduce) {
+            .cf-layer,
+            .moon, .moon-glow,
+            .layer-stars i,
+            .login-card,
+            .mic-badge .ripple { animation: none !important; }
+        }
+
     </style>
 </head>
 <body class="bg-blue-50 font-sans min-h-screen pb-28 text-gray-800">
@@ -115,26 +262,57 @@
         </transition>
         <!-- ============ /全局自定义对话框 ============ -->
 
-        <div v-if="!currentUser" class="fixed inset-0 z-[200] bg-blue-50/95 backdrop-blur-md flex items-center justify-center">
-            <div class="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full mx-4 border border-blue-100 text-center transform transition-all">
-                <h2 class="text-2xl font-extrabold text-gray-800 mb-2">欢迎来到whisper语音识别小助手！</h2>
-                <p class="text-gray-500 mb-8 text-sm">请输入你的专属代号和密码╰(*°▽°*)╯</p>
-                <input v-model="loginInput"
-                       type="text"
-                       placeholder="代号（例如：哈基米/LolCat）"
-                       class="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl px-5 py-4 text-lg text-center font-bold focus:outline-none focus:border-blue-400 focus:bg-white transition mb-4 shadow-sm placeholder-gray-300">
-                <input v-model="passwordInput"
-                       @keyup.enter="handleAuth('login')"
-                       type="password"
-                       placeholder="密码（4-16 个字符）"
-                       autocomplete="current-password"
-                       class="w-full bg-gray-50 border-2 border-gray-200 rounded-2xl px-5 py-4 text-lg text-center font-bold focus:outline-none focus:border-blue-400 focus:bg-white transition mb-6 shadow-sm placeholder-gray-300">
+        <!-- ============ 登录界面（梵高星空涂鸦风 · P1 脚手架）============ -->
+        <!-- 背景图层目前用占位 SVG，正式插画到位后改 <style> 里 .login-stage 的 --img-* 变量 -->
+        <div v-if="!currentUser" class="login-stage fixed inset-0 z-[200] flex items-center justify-center px-4">
+
+            <!-- 背景：cover-frame 内 天空/云/月 三层共享裁剪、天然对齐 -->
+            <div class="cover-frame" aria-hidden="true">
+                <div class="cf-layer layer-sky"></div>
+                <div class="cf-layer layer-clouds"></div>
+                <div class="cf-layer layer-fg"></div>
+                <div class="moon-glow"></div>
+                <img class="moon" src="/static/img/login/moon.webp?v=2" alt="">
+            </div>
+            <div class="layer-stars" aria-hidden="true"><i class="tw" style="left:80.4%;top:15.0%;--sz:7px;--d:4.7s;animation-delay:2.7s"></i><i class="tw" style="left:96.0%;top:44.5%;--sz:5px;--d:3.4s;animation-delay:3.4s"></i><i class="tw" style="left:29.1%;top:33.6%;--sz:3px;--d:3.3s;animation-delay:1.5s"></i><i class="tw" style="left:7.0%;top:30.6%;--sz:7px;--d:3.6s;animation-delay:4.2s"></i><i class="tw cool" style="left:13.3%;top:4.6%;--sz:4px;--d:5.0s;animation-delay:5.0s"></i><i class="tw" style="left:75.9%;top:26.1%;--sz:4px;--d:2.6s;animation-delay:2.6s"></i><i class="tw" style="left:39.8%;top:10.7%;--sz:3px;--d:4.7s;animation-delay:1.8s"></i><i class="tw" style="left:67.6%;top:42.0%;--sz:3px;--d:3.0s;animation-delay:0.6s"></i><i class="tw" style="left:7.5%;top:14.9%;--sz:3.5px;--d:4.7s;animation-delay:3.4s"></i><i class="tw" style="left:58.6%;top:23.4%;--sz:4px;--d:3.8s;animation-delay:0.0s"></i><i class="tw" style="left:74.8%;top:19.0%;--sz:7px;--d:4.7s;animation-delay:0.1s"></i><i class="tw" style="left:44.6%;top:16.8%;--sz:3px;--d:4.8s;animation-delay:3.6s"></i><i class="tw" style="left:68.3%;top:43.6%;--sz:4px;--d:3.7s;animation-delay:2.1s"></i><i class="tw" style="left:27.0%;top:43.2%;--sz:5px;--d:3.5s;animation-delay:3.8s"></i><i class="tw" style="left:93.9%;top:9.9%;--sz:3px;--d:4.8s;animation-delay:1.6s"></i><i class="tw" style="left:89.1%;top:10.1%;--sz:4px;--d:4.6s;animation-delay:2.2s"></i><i class="tw" style="left:90.8%;top:42.8%;--sz:6px;--d:4.2s;animation-delay:0.2s"></i><i class="tw" style="left:88.1%;top:2.6%;--sz:5px;--d:2.8s;animation-delay:1.4s"></i><i class="tw cool" style="left:57.0%;top:11.3%;--sz:3.5px;--d:3.1s;animation-delay:3.0s"></i><i class="tw cool" style="left:67.3%;top:2.5%;--sz:4.5px;--d:5.0s;animation-delay:3.4s"></i><i class="tw cool" style="left:92.2%;top:21.4%;--sz:3px;--d:4.6s;animation-delay:0.7s"></i><i class="tw" style="left:4.0%;top:38.7%;--sz:5px;--d:3.1s;animation-delay:0.6s"></i><i class="tw" style="left:78.7%;top:36.8%;--sz:4px;--d:4.9s;animation-delay:3.8s"></i><i class="tw cool" style="left:3.6%;top:2.3%;--sz:4px;--d:4.1s;animation-delay:1.6s"></i><i class="tw" style="left:33.9%;top:17.9%;--sz:5px;--d:4.4s;animation-delay:1.4s"></i><i class="tw" style="left:26.8%;top:10.2%;--sz:5px;--d:2.9s;animation-delay:4.0s"></i><i class="tw" style="left:24.5%;top:3.1%;--sz:3px;--d:3.0s;animation-delay:0.9s"></i><i class="tw" style="left:24.8%;top:30.9%;--sz:2.5px;--d:3.8s;animation-delay:3.0s"></i><i class="tw cool" style="left:93.9%;top:14.7%;--sz:2.5px;--d:3.3s;animation-delay:2.0s"></i><i class="tw" style="left:9.9%;top:40.6%;--sz:3.5px;--d:4.1s;animation-delay:4.8s"></i><i class="tw" style="left:79.8%;top:3.9%;--sz:3.5px;--d:4.2s;animation-delay:0.6s"></i><i class="tw" style="left:89.9%;top:31.0%;--sz:3px;--d:4.6s;animation-delay:2.5s"></i><i class="tw" style="left:85.8%;top:40.5%;--sz:4px;--d:3.3s;animation-delay:1.9s"></i><i class="tw cool" style="left:69.9%;top:19.8%;--sz:5px;--d:3.7s;animation-delay:2.0s"></i><i class="tw" style="left:75.8%;top:9.4%;--sz:3.5px;--d:4.6s;animation-delay:0.5s"></i><i class="tw" style="left:33.6%;top:44.8%;--sz:4.5px;--d:2.9s;animation-delay:1.2s"></i><i class="tw cool" style="left:92.9%;top:21.5%;--sz:3px;--d:4.8s;animation-delay:2.8s"></i><i class="tw" style="left:85.9%;top:48.7%;--sz:6px;--d:3.9s;animation-delay:1.9s"></i><i class="tw" style="left:77.9%;top:48.7%;--sz:5px;--d:3.1s;animation-delay:4.3s"></i><i class="tw" style="left:96.1%;top:22.3%;--sz:6px;--d:3.7s;animation-delay:4.6s"></i><i class="tw" style="left:26.4%;top:16.3%;--sz:5px;--d:3.3s;animation-delay:4.1s"></i><i class="tw" style="left:86.1%;top:39.8%;--sz:3.5px;--d:3.3s;animation-delay:0.2s"></i><i class="tw cool" style="left:26.2%;top:22.4%;--sz:5px;--d:4.8s;animation-delay:1.8s"></i><i class="tw" style="left:5.0%;top:16.9%;--sz:5px;--d:4.3s;animation-delay:3.1s"></i><i class="tw" style="left:73.8%;top:47.6%;--sz:6px;--d:3.4s;animation-delay:3.2s"></i><i class="tw" style="left:29.8%;top:7.4%;--sz:5px;--d:4.8s;animation-delay:0.2s"></i><i class="tw" style="left:8.0%;top:21.6%;--sz:4px;--d:3.4s;animation-delay:0.5s"></i><i class="tw cool" style="left:65.8%;top:39.7%;--sz:4px;--d:3.2s;animation-delay:0.3s"></i><i class="tw" style="left:66.4%;top:14.2%;--sz:4px;--d:2.8s;animation-delay:2.2s"></i><i class="tw" style="left:19.2%;top:47.2%;--sz:4px;--d:2.9s;animation-delay:0.9s"></i><i class="tw cool" style="left:37.8%;top:16.2%;--sz:4px;--d:3.3s;animation-delay:3.3s"></i><i class="tw" style="left:17.2%;top:46.5%;--sz:4.5px;--d:3.9s;animation-delay:2.9s"></i><i class="tw" style="left:85.3%;top:45.6%;--sz:7px;--d:2.9s;animation-delay:1.2s"></i><i class="tw" style="left:85.3%;top:29.8%;--sz:4.5px;--d:3.9s;animation-delay:1.0s"></i><i class="tw" style="left:74.9%;top:2.6%;--sz:7px;--d:4.1s;animation-delay:0.8s"></i><i class="tw" style="left:28.7%;top:30.8%;--sz:5px;--d:4.4s;animation-delay:1.7s"></i><i class="tw cool" style="left:18.7%;top:33.3%;--sz:3px;--d:2.9s;animation-delay:0.3s"></i><i class="tw" style="left:18.5%;top:8.6%;--sz:7px;--d:3.6s;animation-delay:3.1s"></i><i class="tw" style="left:73.6%;top:46.0%;--sz:6px;--d:4.0s;animation-delay:2.8s"></i><i class="tw" style="left:5.0%;top:27.7%;--sz:2.5px;--d:4.6s;animation-delay:4.4s"></i><i class="tw" style="left:89.4%;top:34.5%;--sz:5px;--d:4.3s;animation-delay:4.9s"></i><i class="tw" style="left:81.8%;top:36.7%;--sz:5px;--d:4.4s;animation-delay:4.5s"></i><i class="tw" style="left:15.3%;top:7.3%;--sz:5px;--d:4.8s;animation-delay:3.9s"></i><i class="tw" style="left:14.8%;top:6.8%;--sz:3.5px;--d:3.9s;animation-delay:3.8s"></i><i class="tw cool" style="left:68.0%;top:18.9%;--sz:4.5px;--d:3.4s;animation-delay:2.5s"></i><i class="tw" style="left:80.4%;top:9.2%;--sz:4px;--d:3.1s;animation-delay:1.2s"></i><i class="tw" style="left:64.5%;top:21.3%;--sz:5px;--d:4.3s;animation-delay:4.1s"></i><i class="tw" style="left:61.0%;top:6.6%;--sz:4.5px;--d:3.9s;animation-delay:1.7s"></i><i class="tw" style="left:38.3%;top:18.2%;--sz:5px;--d:2.9s;animation-delay:1.7s"></i><i class="tw" style="left:4.2%;top:44.9%;--sz:5px;--d:3.2s;animation-delay:3.6s"></i><i class="tw" style="left:56.5%;top:22.2%;--sz:5px;--d:3.6s;animation-delay:3.9s"></i><i class="tw" style="left:9.7%;top:20.8%;--sz:6px;--d:4.5s;animation-delay:3.6s"></i><i class="tw" style="left:80.6%;top:45.4%;--sz:3px;--d:4.7s;animation-delay:1.7s"></i><i class="tw" style="left:61.4%;top:7.6%;--sz:4px;--d:3.5s;animation-delay:3.8s"></i><i class="tw" style="left:74.3%;top:44.6%;--sz:6px;--d:2.7s;animation-delay:4.0s"></i><i class="tw" style="left:23.5%;top:34.2%;--sz:3px;--d:4.4s;animation-delay:2.7s"></i><i class="tw" style="left:28.7%;top:37.6%;--sz:4px;--d:4.7s;animation-delay:2.9s"></i><i class="tw" style="left:17.6%;top:42.3%;--sz:7px;--d:3.5s;animation-delay:3.0s"></i><i class="tw" style="left:87.5%;top:40.5%;--sz:4px;--d:2.6s;animation-delay:0.0s"></i><i class="tw" style="left:89.4%;top:43.3%;--sz:4px;--d:2.8s;animation-delay:1.0s"></i><i class="tw" style="left:44.3%;top:17.0%;--sz:6px;--d:2.6s;animation-delay:2.4s"></i><i class="tw" style="left:69.3%;top:43.8%;--sz:4px;--d:5.0s;animation-delay:1.8s"></i><i class="tw" style="left:68.0%;top:4.6%;--sz:5px;--d:4.4s;animation-delay:1.3s"></i><i class="tw cool" style="left:76.9%;top:8.2%;--sz:4px;--d:4.7s;animation-delay:2.4s"></i><i class="tw" style="left:77.3%;top:29.5%;--sz:3px;--d:2.8s;animation-delay:2.4s"></i><i class="tw" style="left:71.9%;top:10.1%;--sz:4px;--d:2.7s;animation-delay:0.8s"></i><i class="tw" style="left:67.5%;top:4.8%;--sz:3px;--d:4.1s;animation-delay:0.7s"></i><i class="tw" style="left:89.3%;top:45.9%;--sz:3px;--d:4.1s;animation-delay:1.5s"></i><i class="tw" style="left:17.4%;top:23.9%;--sz:6px;--d:3.6s;animation-delay:3.7s"></i><i class="tw cool" style="left:49.6%;top:20.7%;--sz:7px;--d:4.4s;animation-delay:3.7s"></i><i class="tw" style="left:65.6%;top:11.2%;--sz:4.5px;--d:3.5s;animation-delay:4.8s"></i><i class="tw" style="left:69.5%;top:20.0%;--sz:5px;--d:3.0s;animation-delay:2.7s"></i><i class="tw" style="left:34.0%;top:48.2%;--sz:4.5px;--d:3.5s;animation-delay:0.1s"></i><i class="tw" style="left:10.3%;top:17.9%;--sz:4px;--d:3.0s;animation-delay:2.1s"></i><i class="tw" style="left:77.1%;top:11.2%;--sz:2.5px;--d:4.7s;animation-delay:4.7s"></i><i class="tw" style="left:13.0%;top:5.2%;--sz:4.5px;--d:3.4s;animation-delay:0.5s"></i><i class="tw" style="left:10.9%;top:17.2%;--sz:4px;--d:4.5s;animation-delay:2.0s"></i><i class="tw" style="left:75.5%;top:2.6%;--sz:4px;--d:4.0s;animation-delay:4.3s"></i><i class="tw" style="left:97.2%;top:45.1%;--sz:3px;--d:3.0s;animation-delay:2.1s"></i><i class="tw" style="left:95.2%;top:9.3%;--sz:5px;--d:4.4s;animation-delay:0.2s"></i></div>
+            <div class="layer-atmos" aria-hidden="true"></div>
+
+            <!-- 深色玻璃登录卡片 -->
+            <div class="login-card w-full max-w-md p-10 rounded-3xl text-center">
+                <!-- 麦克风徽章 + "正在聆听"涟漪 -->
+                <div class="mic-badge">
+                    <span class="ripple"></span>
+                    <span class="ripple"></span>
+                    <span class="ripple"></span>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                </div>
+
+                <h2 class="text-2xl font-extrabold mb-2">欢迎来到whisper语音识别小助手！</h2>
+                <p class="mb-8 text-sm">请输入你的专属代号和密码╰(*°▽°*)╯</p>
+
+                <div class="login-field mb-4">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-6.32 3.9A1 1 0 006.57 19.4h10.86a1 1 0 00.89-1.5A7 7 0 0012 14z"></path></svg>
+                    <input v-model="loginInput"
+                           type="text"
+                           placeholder="代号（例如：哈基米/LolCat）"
+                           class="login-input w-full rounded-2xl px-5 py-4 text-lg font-bold transition">
+                </div>
+                <div class="login-field mb-6">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    <input v-model="passwordInput"
+                           @keyup.enter="handleAuth('login')"
+                           type="password"
+                           placeholder="密码（4-16 个字符）"
+                           autocomplete="current-password"
+                           class="login-input w-full rounded-2xl px-5 py-4 text-lg font-bold transition">
+                </div>
                 <div class="flex flex-col gap-3">
-                    <button @click="handleAuth('login')" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-extrabold text-lg py-4 rounded-2xl shadow-lg shadow-blue-500/30 transition transform hover:-translate-y-1 active:translate-y-0">直接登录</button>
-                    <button @click="handleAuth('register')" class="w-full bg-white text-blue-600 border-2 border-blue-100 hover:bg-blue-50 font-extrabold text-lg py-3 rounded-2xl transition shadow-sm hover:-translate-y-1 active:translate-y-0">注册新代号</button>
+                    <button @click="handleAuth('login')" class="login-btn-primary w-full font-extrabold text-lg py-4 rounded-2xl transition transform hover:-translate-y-1 active:translate-y-0">直接登录</button>
+                    <button @click="handleAuth('register')" class="login-btn-ghost w-full font-extrabold text-lg py-3 rounded-2xl transition hover:-translate-y-1 active:translate-y-0">注册新代号</button>
                 </div>
             </div>
         </div>
+        <!-- ============ /登录界面 ============ -->
 
         <div v-if="currentUser">
             <div class="sticky top-0 z-50 bg-blue-50/60 backdrop-blur-xl pt-5 pb-3 mb-4 -mx-4 px-4 border-b border-white/40 shadow-sm transition-all">
@@ -810,5 +988,6 @@
     </template>
 
     <script type="module" src="/static/js/app.js?v=1.3"></script>
+    <script src="/static/js/login_parallax.js?v=1" defer></script>
 </body>
 </html>
