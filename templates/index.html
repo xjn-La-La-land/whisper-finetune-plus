@@ -7,6 +7,19 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
     <!-- 前端库本地化（同源加载，避免国内访问海外 CDN 慢/失败导致白屏）。见 TODO_PUBLIC_DEPLOY.md A-5。
          Tailwind 已由 Play CDN 改为预编译静态 CSS：改 class 后用 tailwind.config.js 里的命令重新生成。 -->
+    <!-- 主题预设：在样式加载前同步定好 light/dark，避免刷新时闪一下错主题。
+         data-theme 供 CSS/图表读取；.theme-light-app 只在「亮色 且 疑似已登录(有 token)」时挂，
+         隐藏星空背景 + 还原浅色 body（登录页恒为星空，故未登录不挂）。之后由 app.js 接管同步。 -->
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('whisper_theme') === 'light' ? 'light' : 'dark';
+                var el = document.documentElement;
+                el.dataset.theme = t;
+                if (t === 'light' && localStorage.getItem('whisper_token')) el.classList.add('theme-light-app');
+            } catch (e) {}
+        })();
+    </script>
     <script src="/static/vendor/vue-3.5.35.global.prod.js"></script>
     <link rel="stylesheet" href="/static/vendor/tailwind.css">
     <script src="/static/vendor/echarts-5.5.0.min.js"></script>
@@ -43,11 +56,27 @@
            图层资产 static/img/login/{sky,clouds,foreground,moon}.webp。动效在 prefers-reduced-motion 下静止。
            ===================================================================== */
 
-        /* L0 兜底深蓝（图片没加载/失败时也好看）*/
-        .login-stage {
-            overflow: hidden;
+        /* L0 兜底深蓝 + 全局星空背景容器：position:fixed 铺满视口、z-index:-1 沉到所有内容之下，
+           所有页面共享同一张星空。登录页=灵动版(.is-login)，登录后内页=安静版(.is-calm)。*/
+        html { background: #070b22; }                       /* 终极兜底，杜绝白闪 */
+        body { background: transparent; color: #e2e8f0; }
+        .sky-bg {
+            position: fixed; inset: 0; z-index: -1; overflow: hidden;
             background: radial-gradient(120% 85% at 50% 6%, #16204a 0%, #0b1130 48%, #070b22 100%);
-            --mx: 0; --my: 0;   /* 由 login_parallax.js 按鼠标/陀螺仪更新（-1..1）*/
+            --mx: 0; --my: 0;   /* 仅登录页(.is-login)由 login_parallax.js 更新；内页恒为 0 → 无视差 */
+        }
+        /* 安静版（已登录内页）：调亮一点 + 冻结月/云 + 压暗蒙版；星星保留闪烁，工作时也有点灵气 */
+        .sky-bg.is-calm .cover-frame  { filter: brightness(.72) saturate(.95); }
+        .sky-bg.is-calm .cf-layer,
+        .sky-bg.is-calm .moon,
+        .sky-bg.is-calm .moon-glow    { animation: none; }      /* 月亮/云/月晕 静止 */
+        .sky-bg.is-calm .moon         { transform: translate(-50%, -50%); }
+        .sky-bg.is-calm .layer-clouds { transform: none; }
+        .sky-bg.is-calm .moon-glow    { opacity: .55; }
+        /* 星星不冻结：沿用 twinkle2 闪烁动画（reduced-motion 下仍由下方媒体查询统一关停）*/
+        .sky-bg.is-calm::after {
+            content: ""; position: absolute; inset: 0; z-index: 7; pointer-events: none;
+            background: radial-gradient(130% 100% at 50% 28%, rgba(7,11,34,.3) 0%, rgba(4,6,18,.58) 100%);
         }
 
         /* cover-frame：把"按 cover 裁剪的画布"做成居中容器，sky/clouds/moon 都铺在里面，
@@ -183,9 +212,177 @@
             .mic-badge .ripple { animation: none !important; }
         }
 
+        /* ========================================================================
+           已登录内页：把原亮色 UI 重皮成「梵高星空」深蓝磨砂玻璃风（深蓝冷 + 暖黄）。
+           约束：Tailwind 已预编译并按需裁剪，不能新增工具类；故用更高优先级的 .vg-app
+           作用域选择器覆盖既有工具类的“颜色”，不动结构/布局。只改色，可整段删除以回滚。
+           ===================================================================== */
+        .vg-app { color: #e2e8f0; }                          /* 未显式着色的文本兜底为浅色 */
+
+        /* —— 卡片：白底 → 深蓝磨砂玻璃 —— */
+        .vg-app .bg-white {
+            background: rgba(17, 24, 39, .5);
+            backdrop-filter: blur(14px) saturate(130%);
+            -webkit-backdrop-filter: blur(14px) saturate(130%);
+            box-shadow: 0 20px 50px -24px rgba(0, 0, 0, .7), inset 0 1px 0 rgba(255, 255, 255, .06);
+        }
+        .vg-app .bg-white\/90,
+        .vg-app .bg-white\/80,
+        .vg-app .bg-white\/70 {
+            background: rgba(17, 24, 39, .6);
+            backdrop-filter: blur(16px) saturate(130%);
+            -webkit-backdrop-filter: blur(16px) saturate(130%);
+        }
+        /* —— 次级面板（淡蓝/淡灰底）→ 半透明深色（已浮在磨砂卡上，不再叠模糊）—— */
+        .vg-app .bg-blue-50,
+        .vg-app .bg-blue-50\/40,
+        .vg-app .bg-blue-50\/50,
+        .vg-app .bg-blue-50\/60,
+        .vg-app .bg-blue-50\/80   { background: rgba(30, 41, 59, .42); }
+        .vg-app .bg-indigo-50\/60 { background: rgba(43, 45, 84, .42); }
+        .vg-app .bg-blue-100      { background: rgba(56, 89, 168, .32); }
+        .vg-app .bg-gray-50,
+        .vg-app .bg-gray-50\/50,
+        .vg-app .bg-gray-50\/60,
+        .vg-app .bg-gray-100      { background: rgba(2, 6, 23, .35); }
+        .vg-app .bg-gray-200,
+        .vg-app .bg-gray-200\/80  { background: rgba(148, 163, 184, .22); }   /* 进度条/滑轨底 */
+
+        /* —— 状态色底（徽章）：淡色 → 深色同色调（文字另调亮）—— */
+        .vg-app .bg-emerald-50,
+        .vg-app .bg-green-50,
+        .vg-app .bg-green-50\/40,
+        .vg-app .bg-green-50\/50,
+        .vg-app .bg-green-100,
+        .vg-app .bg-green-100\/80 { background: rgba(16, 185, 129, .16); }
+        .vg-app .bg-amber-50      { background: rgba(245, 158, 11, .16); }
+        .vg-app .bg-orange-50     { background: rgba(249, 115, 22, .16); }
+        .vg-app .bg-red-50,
+        .vg-app .bg-red-50\/50,
+        .vg-app .bg-rose-50       { background: rgba(244, 63, 94, .16); }
+        .vg-app .bg-sky-50        { background: rgba(56, 189, 248, .16); }
+
+        /* —— 边框：浅灰/白 → 极淡冷光描边 —— */
+        .vg-app .border-white,
+        .vg-app .border-white\/40,
+        .vg-app .border-white\/60,
+        .vg-app .border-blue-50,
+        .vg-app .border-blue-100,
+        .vg-app .border-blue-100\/50,
+        .vg-app .border-gray-100,
+        .vg-app .border-gray-200,
+        .vg-app .border-gray-300,
+        .vg-app .border-indigo-100 { border-color: rgba(148, 163, 184, .18); }
+
+        /* —— 文字：深灰阶 → 浅色阶 —— */
+        .vg-app .text-gray-800,
+        .vg-app .text-gray-700 { color: #f1f5f9; }
+        .vg-app .text-gray-600 { color: #cbd5e1; }
+        .vg-app .text-gray-500 { color: #aab4c5; }
+        .vg-app .text-gray-400 { color: #8b97ab; }
+        /* 主强调：蓝字 → 暖金（与登录页一致的星光金）*/
+        .vg-app .text-blue-600,
+        .vg-app .text-blue-500 { color: #fcd34d; }
+        .vg-app .text-blue-700 { color: #fde68a; }
+        .vg-app .hover\:text-blue-500:hover,
+        .vg-app .hover\:text-blue-600:hover,
+        .vg-app .group:hover .group-hover\:text-blue-500 { color: #fde68a; }
+        /* 语义文字调亮，确保在深底上够亮 */
+        .vg-app .text-emerald-700,
+        .vg-app .text-green-700,
+        .vg-app .text-green-600 { color: #6ee7b7; }
+        .vg-app .text-red-700,
+        .vg-app .text-red-600,
+        .vg-app .text-red-500,
+        .vg-app .text-red-400,
+        .vg-app .text-rose-700,
+        .vg-app .text-rose-500 { color: #fda4af; }
+        .vg-app .text-amber-700,
+        .vg-app .text-orange-500 { color: #fbbf24; }
+        .vg-app .text-sky-700,
+        .vg-app .text-sky-600 { color: #7dd3fc; }
+        .vg-app .text-violet-700 { color: #c4b5fd; }
+
+        /* —— 表单控件：深底浅字 + 暖金聚焦（沿用登录页观感）—— */
+        .vg-app input,
+        .vg-app select,
+        .vg-app textarea { color: #f1f5f9; }
+        .vg-app input::placeholder,
+        .vg-app textarea::placeholder { color: rgba(226, 232, 240, .4); }
+        /* 没有 bg-* 工具类的输入框（如各滑块右侧的数字框）兜底成深色，避免浅底浅字看不见。
+           用 :where() 保持 0 特异度 → 任何显式 bg-* 工具类仍能照常覆盖它 */
+        .vg-app :where(input[type="text"], input[type="number"], input[type="password"], select, textarea) {
+            background-color: rgba(2, 6, 23, .4);
+        }
+        /* 个别用 bg-white 的输入/下拉：去掉卡片级模糊与重投影，回归朴素深色控件 */
+        .vg-app input.bg-white,
+        .vg-app select.bg-white { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+        .vg-app .focus\:bg-white:focus { background: rgba(2, 6, 23, .5); }
+        /* 导入(.txt) 文件按钮 + 基础模型“下载”按钮的浅色面 → 深色面 */
+        .vg-app .file\:bg-blue-50::file-selector-button { background: rgba(30, 41, 59, .55); }
+        .vg-app .file\:text-blue-600::file-selector-button { color: #fde68a; }
+        .vg-app .from-white { --tw-gradient-from: #1e293b var(--tw-gradient-from-position); --tw-gradient-to: rgb(30 41 59 / 0) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+        .vg-app .to-sky-50  { --tw-gradient-to: #0b1220 var(--tw-gradient-to-position); }
+
+        /* —— 禁用态：浅灰 → 暗哑灰，避免在深底上反而高亮 —— */
+        .vg-app .disabled\:bg-gray-300:disabled,
+        .vg-app .disabled\:bg-gray-100:disabled { background: rgba(148, 163, 184, .18); }
+        .vg-app .disabled\:text-gray-400:disabled { color: #64748b; }
+        .vg-app .disabled\:border-gray-200:disabled { border-color: rgba(148, 163, 184, .18); }
+        .vg-app .disabled\:from-gray-300:disabled { --tw-gradient-from: #334155 var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+        .vg-app .disabled\:to-gray-400:disabled { --tw-gradient-to: #475569 var(--tw-gradient-to-position); }
+
+        /* —— 深色滚动条（识别文本流等）—— */
+        .custom-scrollbar { scrollbar-width: thin; scrollbar-color: rgba(148, 163, 184, .4) transparent; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .35); border-radius: 9999px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+        /* ========================================================================
+           主题切换：light / dark。dark = 星空（`.sky-bg` 背景 + `.vg-app` 深色皮）；
+           light = 去掉 `.vg-app`（回原生 Tailwind 亮色）+ 藏星空 + 还原浅蓝 body。
+           开关与扩散动画见 app.js 的 toggleTheme（View Transitions API）。
+           ===================================================================== */
+        /* 亮色 且 已登录：藏掉星空背景、还原原来的浅蓝底与深色文字（登录页恒星空，故不挂此类）*/
+        html.theme-light-app .sky-bg { display: none; }
+        html.theme-light-app body { background: #eff6ff; color: #1f2937; }   /* = 原 bg-blue-50 / text-gray-800 */
+
+        /* —— 右下角主题切换 FAB（圆形磨砂玻璃 + 暖色光晕）—— */
+        .theme-fab {
+            position: fixed; right: 22px; bottom: 92px; z-index: 60;   /* 移动端抬高，避开底部居中的 tab 栏 */
+            width: 52px; height: 52px; border-radius: 9999px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; border: 1px solid transparent;
+            transition: transform .2s ease, box-shadow .25s ease, background .3s ease, border-color .3s ease, color .3s ease;
+        }
+        @media (min-width: 1024px) { .theme-fab { bottom: 26px; } }       /* 宽屏右侧空间足够，落到角落 */
+        .theme-fab svg { width: 24px; height: 24px; }
+        .theme-fab:hover  { transform: translateY(-2px) scale(1.05); }
+        .theme-fab:active { transform: scale(.94); }
+        .theme-fab:focus-visible { outline: 2px solid rgba(251, 191, 36, .7); outline-offset: 2px; }
+        /* dark：深蓝玻璃 + 暖金月亮 */
+        html[data-theme="dark"] .theme-fab {
+            background: rgba(15, 23, 42, .55); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border-color: rgba(253, 224, 138, .35); color: #fcd34d;
+            box-shadow: 0 10px 26px -10px rgba(0, 0, 0, .6), 0 0 18px -4px rgba(251, 191, 36, .35);
+        }
+        html[data-theme="dark"] .theme-fab:hover { box-shadow: 0 14px 32px -8px rgba(0, 0, 0, .6), 0 0 28px -2px rgba(251, 191, 36, .55); }
+        /* light：白玻璃 + 暖橙太阳 */
+        html[data-theme="light"] .theme-fab {
+            background: rgba(255, 255, 255, .88); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border-color: rgba(59, 130, 246, .18); color: #f59e0b;
+            box-shadow: 0 10px 26px -12px rgba(2, 6, 23, .28);
+        }
+        html[data-theme="light"] .theme-fab:hover { box-shadow: 0 16px 34px -10px rgba(2, 6, 23, .32), 0 0 22px -6px rgba(245, 158, 11, .5); }
+
+        /* —— View Transitions：关掉默认淡入淡出，只保留 JS 写的「从按钮圆形扩散」(clipPath) —— */
+        ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+        ::view-transition-new(root) { z-index: 1; }   /* 新主题在上、被圆形 clip 揭开 */
+        ::view-transition-old(root) { z-index: 0; }
+
     </style>
 </head>
-<body class="bg-blue-50 font-sans min-h-screen pb-28 text-gray-800">
+<body class="font-sans min-h-screen pb-28">
     <div id="app" class="max-w-[1600px] mx-auto px-4 lg:px-6 relative h-full">
 
         <!-- ============ 全局自定义对话框（替代原生 alert / confirm）============ -->
@@ -262,9 +459,9 @@
         </transition>
         <!-- ============ /全局自定义对话框 ============ -->
 
-        <!-- ============ 登录界面（梵高星空涂鸦风 · P1 脚手架）============ -->
-        <!-- 背景图层目前用占位 SVG，正式插画到位后改 <style> 里 .login-stage 的 --img-* 变量 -->
-        <div v-if="!currentUser" class="login-stage fixed inset-0 z-[200] flex items-center justify-center px-4">
+        <!-- ============ 全局星空背景（所有页面共享）============ -->
+        <!-- 登录页=灵动版(is-login，含动效+视差)；登录后内页=安静版(is-calm，调暗+冻结)。详见 TODO_LOGIN_BACKGROUND.md -->
+        <div class="sky-bg" :class="currentUser ? 'is-calm' : 'is-login'" aria-hidden="true">
 
             <!-- 背景：cover-frame 内 天空/云/月 三层共享裁剪、天然对齐 -->
             <div class="cover-frame" aria-hidden="true">
@@ -276,7 +473,11 @@
             </div>
             <div class="layer-stars" aria-hidden="true"><i class="tw" style="left:80.4%;top:15.0%;--sz:7px;--d:4.7s;animation-delay:2.7s"></i><i class="tw" style="left:96.0%;top:44.5%;--sz:5px;--d:3.4s;animation-delay:3.4s"></i><i class="tw" style="left:29.1%;top:33.6%;--sz:3px;--d:3.3s;animation-delay:1.5s"></i><i class="tw" style="left:7.0%;top:30.6%;--sz:7px;--d:3.6s;animation-delay:4.2s"></i><i class="tw cool" style="left:13.3%;top:4.6%;--sz:4px;--d:5.0s;animation-delay:5.0s"></i><i class="tw" style="left:75.9%;top:26.1%;--sz:4px;--d:2.6s;animation-delay:2.6s"></i><i class="tw" style="left:39.8%;top:10.7%;--sz:3px;--d:4.7s;animation-delay:1.8s"></i><i class="tw" style="left:67.6%;top:42.0%;--sz:3px;--d:3.0s;animation-delay:0.6s"></i><i class="tw" style="left:7.5%;top:14.9%;--sz:3.5px;--d:4.7s;animation-delay:3.4s"></i><i class="tw" style="left:58.6%;top:23.4%;--sz:4px;--d:3.8s;animation-delay:0.0s"></i><i class="tw" style="left:74.8%;top:19.0%;--sz:7px;--d:4.7s;animation-delay:0.1s"></i><i class="tw" style="left:44.6%;top:16.8%;--sz:3px;--d:4.8s;animation-delay:3.6s"></i><i class="tw" style="left:68.3%;top:43.6%;--sz:4px;--d:3.7s;animation-delay:2.1s"></i><i class="tw" style="left:27.0%;top:43.2%;--sz:5px;--d:3.5s;animation-delay:3.8s"></i><i class="tw" style="left:93.9%;top:9.9%;--sz:3px;--d:4.8s;animation-delay:1.6s"></i><i class="tw" style="left:89.1%;top:10.1%;--sz:4px;--d:4.6s;animation-delay:2.2s"></i><i class="tw" style="left:90.8%;top:42.8%;--sz:6px;--d:4.2s;animation-delay:0.2s"></i><i class="tw" style="left:88.1%;top:2.6%;--sz:5px;--d:2.8s;animation-delay:1.4s"></i><i class="tw cool" style="left:57.0%;top:11.3%;--sz:3.5px;--d:3.1s;animation-delay:3.0s"></i><i class="tw cool" style="left:67.3%;top:2.5%;--sz:4.5px;--d:5.0s;animation-delay:3.4s"></i><i class="tw cool" style="left:92.2%;top:21.4%;--sz:3px;--d:4.6s;animation-delay:0.7s"></i><i class="tw" style="left:4.0%;top:38.7%;--sz:5px;--d:3.1s;animation-delay:0.6s"></i><i class="tw" style="left:78.7%;top:36.8%;--sz:4px;--d:4.9s;animation-delay:3.8s"></i><i class="tw cool" style="left:3.6%;top:2.3%;--sz:4px;--d:4.1s;animation-delay:1.6s"></i><i class="tw" style="left:33.9%;top:17.9%;--sz:5px;--d:4.4s;animation-delay:1.4s"></i><i class="tw" style="left:26.8%;top:10.2%;--sz:5px;--d:2.9s;animation-delay:4.0s"></i><i class="tw" style="left:24.5%;top:3.1%;--sz:3px;--d:3.0s;animation-delay:0.9s"></i><i class="tw" style="left:24.8%;top:30.9%;--sz:2.5px;--d:3.8s;animation-delay:3.0s"></i><i class="tw cool" style="left:93.9%;top:14.7%;--sz:2.5px;--d:3.3s;animation-delay:2.0s"></i><i class="tw" style="left:9.9%;top:40.6%;--sz:3.5px;--d:4.1s;animation-delay:4.8s"></i><i class="tw" style="left:79.8%;top:3.9%;--sz:3.5px;--d:4.2s;animation-delay:0.6s"></i><i class="tw" style="left:89.9%;top:31.0%;--sz:3px;--d:4.6s;animation-delay:2.5s"></i><i class="tw" style="left:85.8%;top:40.5%;--sz:4px;--d:3.3s;animation-delay:1.9s"></i><i class="tw cool" style="left:69.9%;top:19.8%;--sz:5px;--d:3.7s;animation-delay:2.0s"></i><i class="tw" style="left:75.8%;top:9.4%;--sz:3.5px;--d:4.6s;animation-delay:0.5s"></i><i class="tw" style="left:33.6%;top:44.8%;--sz:4.5px;--d:2.9s;animation-delay:1.2s"></i><i class="tw cool" style="left:92.9%;top:21.5%;--sz:3px;--d:4.8s;animation-delay:2.8s"></i><i class="tw" style="left:85.9%;top:48.7%;--sz:6px;--d:3.9s;animation-delay:1.9s"></i><i class="tw" style="left:77.9%;top:48.7%;--sz:5px;--d:3.1s;animation-delay:4.3s"></i><i class="tw" style="left:96.1%;top:22.3%;--sz:6px;--d:3.7s;animation-delay:4.6s"></i><i class="tw" style="left:26.4%;top:16.3%;--sz:5px;--d:3.3s;animation-delay:4.1s"></i><i class="tw" style="left:86.1%;top:39.8%;--sz:3.5px;--d:3.3s;animation-delay:0.2s"></i><i class="tw cool" style="left:26.2%;top:22.4%;--sz:5px;--d:4.8s;animation-delay:1.8s"></i><i class="tw" style="left:5.0%;top:16.9%;--sz:5px;--d:4.3s;animation-delay:3.1s"></i><i class="tw" style="left:73.8%;top:47.6%;--sz:6px;--d:3.4s;animation-delay:3.2s"></i><i class="tw" style="left:29.8%;top:7.4%;--sz:5px;--d:4.8s;animation-delay:0.2s"></i><i class="tw" style="left:8.0%;top:21.6%;--sz:4px;--d:3.4s;animation-delay:0.5s"></i><i class="tw cool" style="left:65.8%;top:39.7%;--sz:4px;--d:3.2s;animation-delay:0.3s"></i><i class="tw" style="left:66.4%;top:14.2%;--sz:4px;--d:2.8s;animation-delay:2.2s"></i><i class="tw" style="left:19.2%;top:47.2%;--sz:4px;--d:2.9s;animation-delay:0.9s"></i><i class="tw cool" style="left:37.8%;top:16.2%;--sz:4px;--d:3.3s;animation-delay:3.3s"></i><i class="tw" style="left:17.2%;top:46.5%;--sz:4.5px;--d:3.9s;animation-delay:2.9s"></i><i class="tw" style="left:85.3%;top:45.6%;--sz:7px;--d:2.9s;animation-delay:1.2s"></i><i class="tw" style="left:85.3%;top:29.8%;--sz:4.5px;--d:3.9s;animation-delay:1.0s"></i><i class="tw" style="left:74.9%;top:2.6%;--sz:7px;--d:4.1s;animation-delay:0.8s"></i><i class="tw" style="left:28.7%;top:30.8%;--sz:5px;--d:4.4s;animation-delay:1.7s"></i><i class="tw cool" style="left:18.7%;top:33.3%;--sz:3px;--d:2.9s;animation-delay:0.3s"></i><i class="tw" style="left:18.5%;top:8.6%;--sz:7px;--d:3.6s;animation-delay:3.1s"></i><i class="tw" style="left:73.6%;top:46.0%;--sz:6px;--d:4.0s;animation-delay:2.8s"></i><i class="tw" style="left:5.0%;top:27.7%;--sz:2.5px;--d:4.6s;animation-delay:4.4s"></i><i class="tw" style="left:89.4%;top:34.5%;--sz:5px;--d:4.3s;animation-delay:4.9s"></i><i class="tw" style="left:81.8%;top:36.7%;--sz:5px;--d:4.4s;animation-delay:4.5s"></i><i class="tw" style="left:15.3%;top:7.3%;--sz:5px;--d:4.8s;animation-delay:3.9s"></i><i class="tw" style="left:14.8%;top:6.8%;--sz:3.5px;--d:3.9s;animation-delay:3.8s"></i><i class="tw cool" style="left:68.0%;top:18.9%;--sz:4.5px;--d:3.4s;animation-delay:2.5s"></i><i class="tw" style="left:80.4%;top:9.2%;--sz:4px;--d:3.1s;animation-delay:1.2s"></i><i class="tw" style="left:64.5%;top:21.3%;--sz:5px;--d:4.3s;animation-delay:4.1s"></i><i class="tw" style="left:61.0%;top:6.6%;--sz:4.5px;--d:3.9s;animation-delay:1.7s"></i><i class="tw" style="left:38.3%;top:18.2%;--sz:5px;--d:2.9s;animation-delay:1.7s"></i><i class="tw" style="left:4.2%;top:44.9%;--sz:5px;--d:3.2s;animation-delay:3.6s"></i><i class="tw" style="left:56.5%;top:22.2%;--sz:5px;--d:3.6s;animation-delay:3.9s"></i><i class="tw" style="left:9.7%;top:20.8%;--sz:6px;--d:4.5s;animation-delay:3.6s"></i><i class="tw" style="left:80.6%;top:45.4%;--sz:3px;--d:4.7s;animation-delay:1.7s"></i><i class="tw" style="left:61.4%;top:7.6%;--sz:4px;--d:3.5s;animation-delay:3.8s"></i><i class="tw" style="left:74.3%;top:44.6%;--sz:6px;--d:2.7s;animation-delay:4.0s"></i><i class="tw" style="left:23.5%;top:34.2%;--sz:3px;--d:4.4s;animation-delay:2.7s"></i><i class="tw" style="left:28.7%;top:37.6%;--sz:4px;--d:4.7s;animation-delay:2.9s"></i><i class="tw" style="left:17.6%;top:42.3%;--sz:7px;--d:3.5s;animation-delay:3.0s"></i><i class="tw" style="left:87.5%;top:40.5%;--sz:4px;--d:2.6s;animation-delay:0.0s"></i><i class="tw" style="left:89.4%;top:43.3%;--sz:4px;--d:2.8s;animation-delay:1.0s"></i><i class="tw" style="left:44.3%;top:17.0%;--sz:6px;--d:2.6s;animation-delay:2.4s"></i><i class="tw" style="left:69.3%;top:43.8%;--sz:4px;--d:5.0s;animation-delay:1.8s"></i><i class="tw" style="left:68.0%;top:4.6%;--sz:5px;--d:4.4s;animation-delay:1.3s"></i><i class="tw cool" style="left:76.9%;top:8.2%;--sz:4px;--d:4.7s;animation-delay:2.4s"></i><i class="tw" style="left:77.3%;top:29.5%;--sz:3px;--d:2.8s;animation-delay:2.4s"></i><i class="tw" style="left:71.9%;top:10.1%;--sz:4px;--d:2.7s;animation-delay:0.8s"></i><i class="tw" style="left:67.5%;top:4.8%;--sz:3px;--d:4.1s;animation-delay:0.7s"></i><i class="tw" style="left:89.3%;top:45.9%;--sz:3px;--d:4.1s;animation-delay:1.5s"></i><i class="tw" style="left:17.4%;top:23.9%;--sz:6px;--d:3.6s;animation-delay:3.7s"></i><i class="tw cool" style="left:49.6%;top:20.7%;--sz:7px;--d:4.4s;animation-delay:3.7s"></i><i class="tw" style="left:65.6%;top:11.2%;--sz:4.5px;--d:3.5s;animation-delay:4.8s"></i><i class="tw" style="left:69.5%;top:20.0%;--sz:5px;--d:3.0s;animation-delay:2.7s"></i><i class="tw" style="left:34.0%;top:48.2%;--sz:4.5px;--d:3.5s;animation-delay:0.1s"></i><i class="tw" style="left:10.3%;top:17.9%;--sz:4px;--d:3.0s;animation-delay:2.1s"></i><i class="tw" style="left:77.1%;top:11.2%;--sz:2.5px;--d:4.7s;animation-delay:4.7s"></i><i class="tw" style="left:13.0%;top:5.2%;--sz:4.5px;--d:3.4s;animation-delay:0.5s"></i><i class="tw" style="left:10.9%;top:17.2%;--sz:4px;--d:4.5s;animation-delay:2.0s"></i><i class="tw" style="left:75.5%;top:2.6%;--sz:4px;--d:4.0s;animation-delay:4.3s"></i><i class="tw" style="left:97.2%;top:45.1%;--sz:3px;--d:3.0s;animation-delay:2.1s"></i><i class="tw" style="left:95.2%;top:9.3%;--sz:5px;--d:4.4s;animation-delay:0.2s"></i></div>
             <div class="layer-atmos" aria-hidden="true"></div>
+        </div>
+        <!-- ============ /全局星空背景 ============ -->
 
+        <!-- ============ 登录卡片（仅未登录时浮于背景之上）============ -->
+        <div v-if="!currentUser" class="login-stage fixed inset-0 z-[200] flex items-center justify-center px-4">
             <!-- 深色玻璃登录卡片 -->
             <div class="login-card w-full max-w-md p-10 rounded-3xl text-center">
                 <!-- 麦克风徽章 + "正在聆听"涟漪 -->
@@ -314,7 +515,7 @@
         </div>
         <!-- ============ /登录界面 ============ -->
 
-        <div v-if="currentUser">
+        <div v-if="currentUser" :class="{ 'vg-app': theme === 'dark' }">
             <div class="sticky top-0 z-50 bg-blue-50/60 backdrop-blur-xl pt-5 pb-3 mb-4 -mx-4 px-4 border-b border-white/40 shadow-sm transition-all">
                 <div class="flex items-center justify-between max-w-[1500px] mx-auto">
                     <div class="flex-1"></div>
@@ -349,6 +550,20 @@
                     <button @click="changeTab('InferencePanel')" class="relative z-10 flex-1 py-3 flex items-center justify-center gap-2 rounded-xl font-extrabold text-sm md:text-base transition-colors duration-300" :class="currentTab === 'InferencePanel' ? 'text-white' : 'text-gray-500 hover:text-blue-500'">✨ 语音识别</button>
                 </div>
             </div>
+
+            <!-- 主题切换悬浮按钮（右下角；移动端自动抬高避开 tab 栏）。点击 → 从按钮圆形扩散切换 light/dark -->
+            <button @click="toggleTheme($event)"
+                    class="theme-fab"
+                    :title="theme === 'dark' ? '切换到亮色模式 ☀' : '切换到暗色模式 ☾'"
+                    :aria-label="theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'">
+                <svg v-if="theme === 'dark'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+                <svg v-else fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+                </svg>
+            </button>
         </div>
     </div>
 
@@ -987,7 +1202,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=1.3"></script>
-    <script src="/static/js/login_parallax.js?v=1" defer></script>
+    <script type="module" src="/static/js/app.js?v=1.5"></script>
+    <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>

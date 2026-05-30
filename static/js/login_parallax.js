@@ -1,12 +1,13 @@
 // 登录页·极轻视差（P4）
-// 鼠标移动 / 设备倾斜 → 给 .login-stage 设 CSS 变量 --mx/--my（范围约 -1..1），
+// 鼠标移动 / 设备倾斜 → 给灵动版背景 .sky-bg.is-login 设 CSS 变量 --mx/--my（范围约 -1..1），
 // 各背景图层在 CSS 里按"深度"用 translate 偏移几像素（与 transform 动画叠加），形成纵深感。
-// 约束：仅在登录遮罩(.login-stage)存在时生效；prefers-reduced-motion 下完全关闭；无任何依赖。
+// 约束：仅登录页(背景为 .sky-bg.is-login)生效；登录后背景切到 .is-calm → 选择器落空 → 自动停；
+//      prefers-reduced-motion 下完全关闭；无任何依赖。
 (function () {
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
   let tx = 0, ty = 0, cx = 0, cy = 0, raf = null;
-  const getStage = () => document.querySelector('.login-stage');
+  const getStage = () => document.querySelector('.sky-bg.is-login');
 
   function loop() {
     raf = null;

@@ -1,8 +1,8 @@
-const { createApp, ref, onMounted } = Vue;
+const { createApp, ref, onMounted, watchEffect, nextTick } = Vue;
 
 import CustomAudio from './custom_audio.js?v=1.2';
 import AudioCollector from './audio_collector.js?v=1.2';
-import FinetunePanel from './finetune_panel.js?v=1.3';
+import FinetunePanel from './finetune_panel.js?v=1.5';
 import InferencePanel from './inference_panel.js?v=1.3';
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch, setToken, clearToken, getToken, getStoredUsername } from './api.js?v=1.2';
@@ -14,6 +14,50 @@ const app = createApp({
         const loginInput = ref("");
         const passwordInput = ref("");
         const isCollectOnly = ref(false);
+
+        // --- 主题（dark=星空 / light=原亮色），记忆到 localStorage（沿用 whisper_* 习惯）---
+        let savedTheme = 'dark';
+        try { savedTheme = localStorage.getItem('whisper_theme') || 'dark'; } catch (e) {}
+        const theme = ref(savedTheme === 'light' ? 'light' : 'dark');
+
+        // 把主题状态反映到 <html>：data-theme 供 CSS/图表读取；
+        // .theme-light-app 只在「亮色 且 已登录」时挂上 → 隐藏星空背景 + 还原浅色 body
+        //（登录页恒为星空：未登录时即使是亮色也不挂该类）。
+        watchEffect(() => {
+            const el = document.documentElement;
+            el.dataset.theme = theme.value;
+            try { localStorage.setItem('whisper_theme', theme.value); } catch (e) {}
+            el.classList.toggle('theme-light-app', theme.value === 'light' && !!currentUser.value);
+            // 通知图表等需要随主题重绘的组件
+            window.dispatchEvent(new CustomEvent('whisper:theme', { detail: theme.value }));
+        });
+
+        // 点击右下角按钮切换主题：用 View Transitions API 做「从按钮圆形扩散」的揭示动画；
+        // 不支持 / prefers-reduced-motion 时优雅降级为直接切换。
+        const toggleTheme = (evt) => {
+            const next = theme.value === 'dark' ? 'light' : 'dark';
+            const apply = () => { theme.value = next; };
+            const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            if (reduce || !document.startViewTransition) { apply(); return; }
+
+            // 以按钮中心为圆心（键盘触发也有坐标）；兜底取右下角附近
+            let x = window.innerWidth - 44, y = window.innerHeight - 44;
+            const el = evt && evt.currentTarget;
+            if (el && el.getBoundingClientRect) {
+                const r = el.getBoundingClientRect();
+                x = r.left + r.width / 2;
+                y = r.top + r.height / 2;
+            }
+            const vt = document.startViewTransition(async () => { apply(); await nextTick(); });
+            vt.ready.then(() => {
+                const endRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+                document.documentElement.animate(
+                    { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`] },
+                    { duration: 480, easing: 'cubic-bezier(.4, 0, .2, 1)', pseudoElement: '::view-transition-new(root)' }
+                );
+            }).catch(() => {});   // ready 极少 reject；主题已切，忽略
+        };
 
         // --- Tab 控制与动画状态 ---
         const currentTab = ref('AudioCollector'); // 默认显示第一个节点
@@ -139,6 +183,8 @@ const app = createApp({
             isCollectOnly,
             currentTab,
             transitionName,
+            theme,
+            toggleTheme,
             changeTab,
             handleAuth,
             handleLogout,

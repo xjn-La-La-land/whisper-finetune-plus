@@ -111,3 +111,54 @@
 - moon：`keep ONLY the glowing moon, bright; everything else solid pure black #000000, flat; same canvas size.`
 
 > 注意：Gemini 不输出真 alpha（会画灰棋盘格），所以一律走"纯色背景 + 本地抠"，别指望它直接给透明 PNG。
+
+---
+
+## 全站推广：星空背景 + 深蓝磨砂玻璃皮肤（已完成 ✅）
+
+> 把登录页背景做到**所有页面**，并让登录后的内页配色贴合星空风（深蓝冷 + 暖黄）。
+> 全部改在 [`templates/index.html`](templates/index.html) 的 `<style>` 与少量结构里，**零新增 Tailwind 工具类**
+> （`static/vendor/tailwind.css` 是按需裁剪的，新工具类不会生效），故无需重跑 Tailwind 构建。
+
+**背景全局化**
+- 原来背景图层埋在登录遮罩 `.login-stage`(`v-if="!currentUser"`) 里；现抽到 `#app` 顶部的常驻
+  `<div class="sky-bg" :class="currentUser ? 'is-calm' : 'is-login'">`，`position:fixed; inset:0; z-index:-1`
+  沉到所有内容之下，所有页面共享同一张星空。`<body>` 去掉 `bg-blue-50/text-gray-800` 改透明 + 浅字，
+  `html` 给 `#070b22` 兜底防白闪。登录卡片单独留在 `v-if="!currentUser"` 的 `.login-stage` 浮层(`z-[200]`)。
+- **两种活力**：`.is-login`(登录页)=原灵动版（云移、月转、星闪、视差）；`.is-calm`(已登录内页)=安静版
+  （`brightness(.72)` 轻调暗 + `::after` 压暗蒙版；月亮/云冻结，**星星保留 `twinkle2` 闪烁**），
+  工作时不晃眼又不失灵气、且省电（无视差/无月转/无云移）。
+- 视差 [`login_parallax.js`](static/js/login_parallax.js) 的 `getStage()` 选择器从 `.login-stage` 改为
+  `.sky-bg.is-login` → 登录后背景切到 `.is-calm`、选择器落空 → rAF 自动停，内页零视差开销。
+
+**内页重皮（深蓝磨砂玻璃）**
+- 在已登录容器加 `class="vg-app"`，用更高优先级的 `.vg-app .<工具类>` 覆盖既有工具类的**颜色**（不动结构/布局，整段可删回滚）：
+  白卡→`rgba(17,24,39,.5)`+`backdrop-filter:blur`；淡蓝/淡灰面板→半透明深色；深灰阶文字→浅色阶；
+  `text-blue-*` 强调字→暖金 `#fcd34d`；绿/红/天蓝/紫等语义色调亮；边框→极淡冷光。
+- 表单：浅底→深底浅字；**无 `bg-*` 工具类的数字框**用 `:where(input…)`（0 特异度）兜底深色，避免浅底浅字看不见；
+  个别 `bg-white` 输入/下拉去掉卡片级模糊与重投影。
+- ECharts 训练曲线（[`finetune_panel.js`](static/js/finetune_panel.js)）legend/坐标轴文字调亮以适配深底面板。
+- 缓存击穿：`app.js?v=1.4`、`login_parallax.js?v=2`、`finetune_panel.js?v=1.4`。
+
+**保留为浅色**：全局自定义对话框（`#app` 顶层、`.vg-app` 之外）仍是白底弹窗——瞬时提醒、高对比，刻意不染色；
+如需统一为深色，给那块也套深色皮即可。
+
+**已用 Playwright + 静态服 + mock /api 截图核验**：登录页、采集、微调、识别四态均为深蓝玻璃风、文字可读、无 page error。
+
+---
+
+## light / dark 主题切换（已完成 ✅）
+
+> dark = 上面这套星空深色；light = 原来的亮色配色、无背景。右下角悬浮按钮切换，带「从按钮圆形扩散」动画。
+
+**机制（极简、复用上面的皮）**
+- 真值源：`theme`(ref，默认 dark) → 写到 `<html data-theme>` + 记忆 `localStorage['whisper_theme']`（见 [`app.js`](static/js/app.js)）。
+- **dark→light 只做两件事**：① 登录后容器的 `:class="{ 'vg-app': theme==='dark' }"` 去掉 `.vg-app` → 整段深色覆盖失效 → 回到原生 Tailwind 亮色；② `<html>` 挂 `.theme-light-app`（仅「亮色 且 已登录」）→ `.sky-bg{display:none}` 藏星空 + `body` 还原 `#eff6ff/#1f2937`。**登录页恒星空**（未登录不挂该类），FAB 只在登录后出现。
+- **防闪烁**：`<head>` 内联一小段在样式前先按 localStorage 定好 `data-theme`/`.theme-light-app`（用 token 存在与否猜是否已登录），再由 app.js 的 `watchEffect` 接管同步。
+- **ECharts 训练曲线**随主题换轴/图例配色（[`finetune_panel.js`](static/js/finetune_panel.js) 的 `chartAxisColors`/`applyChartTheme`，监听 `whisper:theme` 事件即时重绘），否则亮色白底上浅字看不清。
+
+**扩散动画** —— View Transitions API（[`app.js`](static/js/app.js) `toggleTheme`）
+- `document.startViewTransition()` 拍快照后，对 `::view-transition-new(root)` 用 Web Animations 把 `clip-path: circle()` **从按钮中心半径 0 → 盖满全屏**地涨开；`<style>` 里把两张快照的默认淡入淡出关掉（`animation:none`）只留这个圆。
+- **降级**：不支持（老 iOS / 部分国内内核）或 `prefers-reduced-motion` 时直接切换，不报错。
+
+**FAB**：右下角圆形磨砂玻璃按钮，dark 显暖金月 ☾ / light 显暖橙日 ☀；移动端 `bottom:92px` 抬高避开底部 tab 栏，`≥1024px` 落到 `bottom:26px` 角落。缓存：`app.js?v=1.5`、`finetune_panel.js?v=1.5`。

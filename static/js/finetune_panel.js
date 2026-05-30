@@ -269,6 +269,23 @@ export default {
         };
 
         // --- ECharts 图表初始化 ---
+        // 图表配色随主题：深色面板用浅色文字/淡线，亮色面板用原深灰（避免白底上看不清）
+        const chartAxisColors = () => (
+            document.documentElement.dataset.theme !== 'light'
+                ? { text: '#cbd5e1', tick: '#94a3b8', line: 'rgba(148,163,184,.45)', split: 'rgba(148,163,184,.18)' }
+                : { text: '#6B7280', tick: '#9CA3AF', line: '#D1D5DB', split: '#E5E7EB' }
+        );
+        // 切主题时即时给已存在的图表换轴/图例颜色（series 蓝绿两色两主题通用，无需改）
+        const applyChartTheme = () => {
+            if (!myChart || myChart.isDisposed()) return;
+            const c = chartAxisColors();
+            myChart.setOption({
+                legend: { textStyle: { color: c.text } },
+                xAxis: { nameTextStyle: { color: c.text }, axisLabel: { color: c.tick }, axisLine: { lineStyle: { color: c.line } } },
+                yAxis: { nameTextStyle: { color: c.text }, axisLabel: { color: c.tick }, splitLine: { lineStyle: { color: c.split } } }
+            });
+        };
+
         const initChart = () => {
             if (!chartRef.value) return false;
             if (typeof echarts === 'undefined') {
@@ -288,12 +305,13 @@ export default {
                 }
                 chartError.value = "";
                 
-                // 配置酷炫的蓝绿色渐变折线图
+                // 配置酷炫的蓝绿色渐变折线图（坐标轴/图例配色随主题：深色面板浅字 / 亮色面板深灰）
+                const c = chartAxisColors();
                 const option = {
                     legend: {
                         top: 10,
                         right: 16,
-                        textStyle: { color: '#6B7280', fontWeight: 'bold' },
+                        textStyle: { color: c.text, fontWeight: 'bold' },
                         data: ['训练集 Loss', '验证集 Eval Loss']
                     },
                     tooltip: { 
@@ -308,15 +326,17 @@ export default {
                         name: '步数 (Step)', 
                         nameLocation: 'middle',
                         nameGap: 25,
-                        nameTextStyle: { color: '#9CA3AF', fontWeight: 'bold' },
+                        nameTextStyle: { color: c.text, fontWeight: 'bold' },
+                        axisLabel: { color: c.tick },
                         splitLine: { show: false },
-                        axisLine: { lineStyle: { color: '#D1D5DB' } }
+                        axisLine: { lineStyle: { color: c.line } }
                     },
-                    yAxis: { 
-                        type: 'value', 
-                        name: '误差 (Loss)', 
-                        nameTextStyle: { color: '#9CA3AF', fontWeight: 'bold' },
-                        splitLine: { lineStyle: { type: 'dashed', color: '#E5E7EB' } }
+                    yAxis: {
+                        type: 'value',
+                        name: '误差 (Loss)',
+                        nameTextStyle: { color: c.text, fontWeight: 'bold' },
+                        axisLabel: { color: c.tick },
+                        splitLine: { lineStyle: { type: 'dashed', color: c.split } }
                     },
                     series: [{
                         name: '训练集 Loss',
@@ -696,6 +716,7 @@ export default {
             if (myChart) myChart.resize();
 
             window.addEventListener('resize', handleResize);
+            window.addEventListener('whisper:theme', applyChartTheme);
 
             await refreshStepStatus();
             await loadBaseModelOptions();
@@ -754,6 +775,7 @@ export default {
             if (myChart) myChart.dispose();
             stopBaseModelPolling();
             window.removeEventListener('resize', handleResize);
+            window.removeEventListener('whisper:theme', applyChartTheme);
         });
 
         // --- 动作：正式发布模型 ---
