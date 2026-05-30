@@ -37,6 +37,11 @@ def _detect_attn_implementation() -> str:
 
     选 SDPA 是默认安全路径：零依赖、跨架构、跨 CUDA 版本都能跑。
     """
+    # Flash-Attention 2 只支持 GPU。CPU 上即使装了 flash_attn 也不能用——
+    # 显式传 attn_implementation="flash_attention_2" 时 transformers 不会自动回退，
+    # 而是直接报 "Flash Attention 2 is not available on CPU"。所以必须先卡 CUDA。
+    if not torch.cuda.is_available():
+        return "sdpa"
     try:
         import flash_attn  # noqa: F401
         return "flash_attention_2"
