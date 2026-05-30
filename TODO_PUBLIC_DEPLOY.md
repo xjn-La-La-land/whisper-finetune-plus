@@ -78,7 +78,7 @@
 
 # 🟢 Phase A 公共前置（两条路都要做）
 
-## [ ] A-1 购买域名并完成实名
+## [x] A-1 购买域名并完成实名
 
 **任务目标**
 - 拿到 `carespeechai.cn`
@@ -97,7 +97,7 @@
 
 ---
 
-## [ ] A-2 后端跑通（先本地、后 Featurize）
+## [x] A-2 后端跑通（先本地、后 Featurize）
 
 **任务目标**
 - 确认完整模式（采集+推理+微调）可启动；并把 Featurize 上的环境/代码持久化好
@@ -128,7 +128,7 @@
 
 ---
 
-## [ ] A-3 确认前端 API 走相对路径（同源）
+## [x] A-3 确认前端 API 走相对路径（同源）
 
 **任务目标**
 - 确保换入口后前端不需要改 URL：页面与 API 同源，`ALLOWED_ORIGINS` 可不配
@@ -147,7 +147,7 @@
 
 ---
 
-## [ ] A-4 Featurize 实例特性与持久化认知
+## [x] A-4 Featurize 实例特性与持久化认知
 
 **任务目标**
 - 理解部署机的临时性，避免实例重建后入口失效
@@ -168,7 +168,7 @@
 
 ---
 
-## [ ] A-5 前端依赖本地化（国内 CDN 问题，影响国内可用性）
+## [x] A-5 前端依赖本地化（国内 CDN 问题，影响国内可用性）
 
 **任务目标**
 - 让页面不依赖海外 CDN，否则国内用户可能白屏/加载慢
@@ -234,7 +234,7 @@ cloudflared tunnel route dns carespeech app.carespeechai.cn # 自动建 CNAME
 
 ---
 
-## [ ] B-3 在 Featurize 实例跑通后端 + 隧道
+## [x] B-3 在 Featurize 实例跑通后端 + 隧道
 
 **任务目标**：实例上启动后端，并跑 cloudflared 连入具名隧道，`https://app.carespeechai.cn` 上线。
 
@@ -245,11 +245,11 @@ cloudflared tunnel route dns carespeech app.carespeechai.cn # 自动建 CNAME
 4. `tmux` 各跑一个：后端 `uvicorn ... 127.0.0.1:8000`；隧道 `cloudflared tunnel --protocol http2 --no-autoupdate run`。
 
 **预估工作量**：首次 20 分钟，之后每次开机 2 分钟
-**完成状态**：未开始（待 Featurize 实例就绪）
+**完成状态**：✅ 已完成 @ 2026-05-30 —— Featurize 实例上后端 + cloudflared(http2) 跑通，`https://app.carespeechai.cn` 上线
 
 ---
 
-## [ ] B-4 端到端验收（Path 1）
+## [x] B-4 端到端验收（Path 1）
 
 **实施步骤**
 1. 浏览器开 `https://app.carespeechai.cn`，登录（`小满 / 0000`）。
@@ -257,7 +257,7 @@ cloudflared tunnel route dns carespeech app.carespeechai.cn # 自动建 CNAME
 
 **验收硬条件**：录音 + 推理 + 微调日志流全部正常。
 **预估工作量**：15 分钟
-**完成状态**：未开始
+**完成状态**：✅ 已完成 @ 2026-05-30 —— 端到端跑通（用户确认）
 
 ---
 
