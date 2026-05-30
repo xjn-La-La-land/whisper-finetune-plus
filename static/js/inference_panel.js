@@ -1,4 +1,4 @@
-const { ref, onMounted, nextTick, watch } = Vue;
+const { ref, onMounted, onActivated, nextTick, watch } = Vue;
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch } from './api.js?v=1.2';
 
@@ -163,6 +163,13 @@ export default {
         };
 
         onMounted(() => {
+            checkModelStatus();
+        });
+
+        // 面板在 <keep-alive> 里被缓存，切 tab 不会重新 onMounted。
+        // 每次激活（从其它 tab 切回语音识别）都重拉一次模型列表，
+        // 这样在微调面板新训练 / 删除的模型能即时反映到下拉框，无需刷新页面或重登。
+        onActivated(() => {
             checkModelStatus();
         });
 

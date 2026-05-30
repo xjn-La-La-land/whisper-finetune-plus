@@ -24,6 +24,12 @@ export default {
         const lastTrainedModelName = ref("");
         const isPublishing = ref(false);
 
+        // --- 「管理微调好的模型」状态 ---
+        const userModels = ref([]);          // 该用户微调好的模型列表（含 is_published / has_tflite / updated_at）
+        const isLoadingModels = ref(false);
+        const selectedModelName = ref("");   // 当前在 loss 看板回放曲线的模型名
+        const deletingModel = ref("");       // 正在删除的模型名（控制按钮 spinner / 禁用）
+
         // --- 模型名称实时校验状态 ---
         // state: 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
         // 用于在用户失焦输入框后即时反馈名称是否可用，避免填完所有参数才报重复
@@ -410,6 +416,95 @@ export default {
 
 
 
+        // --- 「管理微调好的模型」逻辑 ---
+
+        // 把 unix 秒时间戳格式化成本地可读字符串，列表里展示训练完成时间
+        const formatTime = (ts) => {
+            if (!ts) return "";
+            try {
+                return new Date(ts * 1000).toLocaleString();
+            } catch (e) {
+                return "";
+            }
+        };
+
+        // 拉取当前用户微调好的模型列表（后端已按 updated_at DESC 排好序）
+        const loadUserModels = async () => {
+            if (!props.currentUser) {
+                userModels.value = [];
+                return;
+            }
+            isLoadingModels.value = true;
+            try {
+                const res = await apiFetch('/api/user_models', { cache: 'no-store' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                userModels.value = Array.isArray(data.models) ? data.models : [];
+            } catch (e) {
+                console.error("加载微调模型列表失败", e);
+                userModels.value = [];
+            } finally {
+                isLoadingModels.value = false;
+            }
+        };
+
+        // 点击某个模型 → 在 loss 看板回放它的历史训练曲线
+        const viewModelCurve = async (model) => {
+            if (!model || !model.model_name) return;
+            // 训练时 SSE 正实时往看板推当前模型曲线，切换查看会互相干扰，故直接拦下
+            if (isTraining.value) {
+                await dialog.alert("训练进行中，看板正在实时绘制当前模型曲线，训练结束后可回看其它模型。", { variant: 'info' });
+                return;
+            }
+            selectedModelName.value = model.model_name;
+            await loadChartHistory(model.model_name);
+        };
+
+        // 删除某个微调模型（后端会删 output/{user}/{model}/ 整目录 + DB 记录）
+        const handleDeleteModel = async (model) => {
+            if (!model || !model.model_name) return;
+            if (isTraining.value) {
+                await dialog.alert("训练进行中，暂时无法删除模型，请等训练结束。", { variant: 'warning' });
+                return;
+            }
+
+            let message = `确定要删除模型「${model.model_name}」吗？\n此操作会永久删除该模型的全部文件（LoRA 权重、TFLite、训练日志），无法恢复。`;
+            if (model.is_published) {
+                message += `\n\n⚠ 该模型当前已发布，删除后安卓客户端将无法再下载它，会回退到基础模型。`;
+            }
+            const ok = await dialog.confirm(message, {
+                variant: 'danger', title: '删除模型', confirmText: '删除'
+            });
+            if (!ok) return;
+
+            deletingModel.value = model.model_name;
+            try {
+                const res = await apiFetch('/api/delete_model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_name: model.model_name })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    // 若删掉的正是当前正在看的模型，清空看板
+                    if (selectedModelName.value === model.model_name) {
+                        selectedModelName.value = "";
+                        await loadChartHistory(null);
+                    }
+                    await loadUserModels();
+                    await dialog.alert(`模型「${model.model_name}」已删除。`, { variant: 'success', title: '删除成功' });
+                } else if (res.status === 423) {
+                    await dialog.alert(data.detail || "GPU 正忙，请稍后再删除", { variant: 'warning' });
+                } else {
+                    await dialog.alert(`删除失败：${data.detail || '未知错误'}`, { variant: 'danger' });
+                }
+            } catch (e) {
+                await dialog.alert("网络请求失败，无法删除模型", { variant: 'danger' });
+            } finally {
+                deletingModel.value = "";
+            }
+        };
+
         // --- 监听 SSE 流数据 ---
         // modelName 必填：日志路径按模型隔离，没有它就找不到对应日志文件
         const startSSE = async ({ resetChart = true, modelName } = {}) => {
@@ -455,10 +550,14 @@ export default {
                     isTraining.value = false;
                     eventSource.close();
                     eventSource = null;
-                    
+
                     // 记录刚训练好的模型名称并弹出发布框
                     lastTrainedModelName.value = finetuneParams.value.model_name;
                     showPublishModal.value = true;
+                    // 看板此刻正展示这个刚训练好的模型的曲线，让「正在查看」标签与之对应；
+                    // 并刷新管理列表，新模型训练完即出现在「管理微调好的模型」区
+                    selectedModelName.value = finetuneParams.value.model_name;
+                    loadUserModels();
                     return;
                 }
 
@@ -600,6 +699,7 @@ export default {
 
             await refreshStepStatus();
             await loadBaseModelOptions();
+            await loadUserModels();
             await checkTrainingStatus();
         });
 
@@ -609,6 +709,7 @@ export default {
 
             await refreshStepStatus();
             await loadBaseModelOptions();
+            await loadUserModels();
             await checkTrainingStatus();
         });
 
@@ -634,11 +735,15 @@ export default {
                     finetuneParams.value.model_name = "";
                     finetuneParams.value.base_model = "";
                     modelNameStatus.value = { state: 'idle', message: '' };
+                    userModels.value = [];
+                    selectedModelName.value = "";
+                    deletingModel.value = "";
                     return;
                 }
 
                 await refreshStepStatus();
                 await loadBaseModelOptions();
+                await loadUserModels();
                 // loadChartHistory 由 checkTrainingStatus 在需要时按 model_name 主动调用
                 await checkTrainingStatus();
             }
@@ -713,7 +818,15 @@ export default {
             closePublishModal,
             modelNameStatus,
             checkModelNameAvailable,
-            clearModelNameStatus
+            clearModelNameStatus,
+            userModels,
+            isLoadingModels,
+            selectedModelName,
+            deletingModel,
+            formatTime,
+            loadUserModels,
+            viewModelCurve,
+            handleDeleteModel
         };
 
     }

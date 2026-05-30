@@ -7,6 +7,7 @@ class GPUStatus:
     IDLE = "IDLE"               # 空闲
     TRAINING = "TRAINING"       # 正在微调
     INFERENCING = "INFERENCING" # 正在运行推理服务
+    DELETING = "DELETING"       # 正在删除某个微调模型（短暂占用，阻止并发训练/推理）
 
 
 # 全局 GPU 状态字典：记录当前 GPU 被谁、以何种状态占用，供前端轮询展示。

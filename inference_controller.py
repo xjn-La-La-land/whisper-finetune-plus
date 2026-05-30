@@ -2,17 +2,20 @@
 import os
 import gc
 import json
+import shutil
+import asyncio
 import sqlite3
 import torch
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from peft import PeftModel
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from zhconv import convert
 from utils.data_utils import remove_punctuation
 from utils.db import get_db
 from utils.auth import get_current_user
-from utils.path_safety import OUTPUT_BASE, safe_join, safe_resolve_under
+from utils.path_safety import OUTPUT_BASE, safe_join, safe_resolve_under, is_valid_model_name
 
 from shared_state import GPUStatus, GPU_STATE, GPU_LOCK, INFERENCE_CACHE
 
@@ -81,7 +84,7 @@ async def resolve_user_model_path(username: str):
     async with get_db(row_factory=sqlite3.Row) as conn:
         cursor = await conn.execute(
             '''
-            SELECT model_name, is_published, version_tag
+            SELECT model_name, is_published, version_tag, created_at, updated_at
             FROM models
             WHERE username = ?
             ORDER BY updated_at DESC, id DESC
@@ -109,7 +112,9 @@ async def resolve_user_model_path(username: str):
                 "model_path": checkpoint_path,
                 "is_published": bool(row["is_published"]),
                 "version_tag": row["version_tag"],
-                "has_tflite": os.path.exists(tflite_path)
+                "has_tflite": os.path.exists(tflite_path),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"]
             })
     return valid_models
 
@@ -117,6 +122,71 @@ async def resolve_user_model_path(username: str):
 @router.get("/api/user_models")
 async def get_user_models(current_user: str = Depends(get_current_user)):
     return {"models": await resolve_user_model_path(current_user)}
+
+
+class DeleteModelRequest(BaseModel):
+    model_name: str
+
+
+@router.post("/api/delete_model")
+async def delete_model(
+    req: DeleteModelRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """删除一个微调好的模型：清掉 output/{user}/{model_name}/ 整目录（LoRA + tflite +
+    loss 日志）和 models 表记录。若该模型正驻留显存，先把它从显存踢掉。
+
+    并发安全：复用全局 GPU_LOCK / GPU_STATE。训练或推理进行中一律拒绝（423），删除期间
+    用 DELETING 状态占位，避免别人趁机加载我们正在 rmtree 的目录。
+    """
+    model_name = req.model_name.strip()
+    # 与 start_finetune 同款白名单：挡住 `..` `/` 等会让 safe_join 之外的逻辑出错的输入
+    if not is_valid_model_name(model_name):
+        raise HTTPException(status_code=400, detail="模型名称非法")
+
+    # 两层 safe_join：先到 user 根，再 join model_name，挡住 model_name=".." 上跳一层
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    model_dir = safe_join(user_output_root, model_name)
+    checkpoint_final = safe_join(model_dir, "checkpoint-final")
+
+    # --- 原子化检查 + 占位 ---
+    async with GPU_LOCK:
+        if GPU_STATE["status"] != GPUStatus.IDLE:
+            raise HTTPException(
+                status_code=423,
+                detail=f"GPU 正被用户 [{GPU_STATE['current_user']}] {GPU_STATE['status']} 占用，请稍后再删除"
+            )
+        GPU_STATE["status"] = GPUStatus.DELETING
+        GPU_STATE["current_user"] = current_user
+
+    # --- 锁外执行实际删除（仿 api_recognition 的 claim 模式，避免在锁内做长耗时 IO）---
+    try:
+        # 1. 若被删模型正驻留显存，先卸载，避免 pipeline 指向马上要删掉的权重文件
+        loaded = INFERENCE_CACHE["loaded_model_path"]
+        if loaded and (
+            loaded == checkpoint_final
+            or loaded == model_dir
+            or loaded.startswith(model_dir + os.sep)
+        ):
+            unload_inference_cache()
+
+        # 2. 删除磁盘目录（可能含上百 MB 的 tflite，放线程池里跑不阻塞 event loop）
+        if os.path.isdir(model_dir):
+            await asyncio.to_thread(shutil.rmtree, model_dir)
+
+        # 3. 删除 DB 记录（目录已不存在但仍有记录的孤儿行也会被一并清掉）
+        async with get_db() as conn:
+            await conn.execute(
+                'DELETE FROM models WHERE username = ? AND model_name = ?',
+                (current_user, model_name)
+            )
+            await conn.commit()
+    finally:
+        async with GPU_LOCK:
+            GPU_STATE["status"] = GPUStatus.IDLE
+            GPU_STATE["current_user"] = None
+
+    return {"message": "模型已删除", "model_name": model_name}
 
 
 @router.get("/api/latest_model_info")
@@ -174,21 +244,32 @@ async def download_published_model(current_user: str = Depends(get_current_user)
     )
 
 
-def load_model_to_gpu(model_path: str):
-    """清理显存并加载新模型"""
-    print(f"正在从显存卸载旧模型，准备加载: {model_path}")
-    
-    # 1. 彻底清空旧模型
+def unload_inference_cache():
+    """彻底卸载显存中的推理模型并清空缓存。
+
+    load_model_to_gpu 在加载新模型前调用它；delete_model 在删除一个正驻留显存的
+    微调模型时也复用它，避免 pipeline 指向已被 rmtree 删掉的权重文件。
+    """
     if INFERENCE_CACHE["pipeline"] is not None:
         del INFERENCE_CACHE["pipeline"].model
         del INFERENCE_CACHE["pipeline"].feature_extractor
         del INFERENCE_CACHE["pipeline"].tokenizer
         del INFERENCE_CACHE["pipeline"]
-        INFERENCE_CACHE["pipeline"] = None
-    
+    INFERENCE_CACHE["pipeline"] = None
+    # loaded_model_path 一并置空：下次推理时 api_recognition 会发现缓存为空而重新加载
+    INFERENCE_CACHE["loaded_model_path"] = None
+
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def load_model_to_gpu(model_path: str):
+    """清理显存并加载新模型"""
+    print(f"正在从显存卸载旧模型，准备加载: {model_path}")
+
+    # 1. 彻底清空旧模型
+    unload_inference_cache()
 
     # 2. 加载新模型
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
