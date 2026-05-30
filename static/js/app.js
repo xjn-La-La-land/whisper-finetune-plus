@@ -1,11 +1,11 @@
 const { createApp, ref, onMounted } = Vue;
 
-import CustomAudio from './custom_audio.js?v=1.1';
-import AudioCollector from './audio_collector.js?v=1.1';
-import FinetunePanel from './finetune_panel.js?v=1.1';
-import InferencePanel from './inference_panel.js?v=1.1';
-import * as dialog from './dialog.js?v=1.1';
-import { apiFetch, setToken, clearToken, getToken, getStoredUsername } from './api.js?v=1.1';
+import CustomAudio from './custom_audio.js?v=1.2';
+import AudioCollector from './audio_collector.js?v=1.2';
+import FinetunePanel from './finetune_panel.js?v=1.2';
+import InferencePanel from './inference_panel.js?v=1.2';
+import * as dialog from './dialog.js?v=1.2';
+import { apiFetch, setToken, clearToken, getToken, getStoredUsername } from './api.js?v=1.2';
 
 const app = createApp({
     setup() {

@@ -1,6 +1,6 @@
 const { ref, onMounted, onUnmounted, onActivated, nextTick, watch } = Vue;
-import * as dialog from './dialog.js?v=1.1';
-import { apiFetch, sseUrl } from './api.js?v=1.1';
+import * as dialog from './dialog.js?v=1.2';
+import { apiFetch, sseUrl } from './api.js?v=1.2';
 
 export default {
     template: '#tpl-finetune-panel',

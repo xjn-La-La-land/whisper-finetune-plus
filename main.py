@@ -31,6 +31,8 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 滑动续期下发的 token 走这个响应头，跨域时浏览器默认读不到自定义响应头，需显式放行
+    expose_headers=["X-Refresh-Token"],
 )
 if ALLOWED_ORIGINS:
     print(f"🌐 CORS 允许的跨域 origin: {ALLOWED_ORIGINS}")

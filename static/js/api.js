@@ -59,6 +59,12 @@ export async function apiFetch(url, options = {}) {
         // 不要在这里 throw，让调用方自己决定是否提示；
         // 但要先广播 unauthorized 让 UI 回到登录态
         broadcastUnauthorized();
+    } else {
+        // 滑动续期：后端在 token 用过一段时间后会通过该响应头下发新 token，
+        // 这里透明替换本地 token，把 7 天有效期顶满 —— 只要用户保持活跃就不会掉线。
+        // 只传 token、不传 username，setToken 会保留已存的用户名。
+        const refreshed = res.headers.get('X-Refresh-Token');
+        if (refreshed) setToken(refreshed);
     }
     return res;
 }

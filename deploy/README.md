@@ -18,6 +18,30 @@
 
 后端绑在 `127.0.0.1:8000`（只给本机的隧道连，不直接对外）。
 
+### 1.0 设置 `JWT_SECRET_KEY`
+
+`JWT_SECRET_KEY` 是登录态 token 的签名密钥，**必须显式设置且长期固定**。
+不设的话，后端会在 `data/.jwt_secret` 自动生成一个随机密钥；而 Featurize 实例重启 /
+换实例后该文件可能丢失，密钥一变，**所有已登录用户手里的 token 立刻失效、集体被踢回
+登录页**（弹"登录已过期，请重新登录"）。固定一个 secret 后就不会再发生。
+
+```bash
+# 只生成一次，长期固定。把结果存进密码管理器，别入库、别每次重新生成。
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+把生成的值写进 `~/.bashrc`（每次开新 shell / 重启自动带上）：
+
+```bash
+echo 'export JWT_SECRET_KEY="把上面生成的值粘这里"' >> ~/.bashrc
+source ~/.bashrc
+[ -n "$JWT_SECRET_KEY" ] && echo "JWT_SECRET_KEY OK" || echo "❌ 仍为空"
+```
+
+> `MODELSCOPE_TOKEN` 等其它环境变量同理，在 `uvicorn` 之前 `export` 即可。
+
+### 1.1 启动进程
+
 ```bash
 tmux new -s backend
 uvicorn main:app --host 127.0.0.1 --port 8000
@@ -29,8 +53,6 @@ quick test（另开一个 tmux tab）：
 ```bash
 curl -s http://127.0.0.1:8000/api/config     # 应返回 {"collect_only":false}
 ```
-
-> 需要 `JWT_SECRET_KEY` / `MODELSCOPE_TOKEN` 等环境变量的话，在 `uvicorn` 之前 `export` 即可。
 
 > 不想用 tmux 也可以：`nohup uvicorn main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &`
 
@@ -118,3 +140,5 @@ cloudflared tunnel info carespeech   # 看隧道当前连接数
 
 - **用镜像开机**：二进制（`~/.local/bin`）和软链接（`~/.cloudflared`）都在镜像里 → 直接跑 ① 和 2.3。
 - **没用镜像的全新实例**：凭据仍在 `~/work/`（持久不丢），但 home 里的二进制和软链接没了 → 补做 **2.1**（下载）+ **2.2 的两条 `ln`**（重建软链接，无需重传凭据），再跑 ① 和 2.3。
+
+> ⚠️ 启动 ① 前务必确认 `JWT_SECRET_KEY` 还在（`echo "$JWT_SECRET_KEY"` 非空）。全新实例若 home 被冲掉，`~/.bashrc` 里的那行也会丢，需要按 **1.0** 重新写入（用之前存好的同一个值，**不要重新生成**，否则又会把大家登出）。

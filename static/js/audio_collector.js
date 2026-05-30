@@ -1,6 +1,6 @@
 const { ref, computed, onMounted, onUnmounted, nextTick } = Vue;
-import * as dialog from './dialog.js?v=1.1';
-import { apiFetch, sseUrl } from './api.js?v=1.1';
+import * as dialog from './dialog.js?v=1.2';
+import { apiFetch, sseUrl } from './api.js?v=1.2';
 
 export default {
     template: '#tpl-audio-collector',
