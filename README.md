@@ -34,7 +34,8 @@
 ├── download_whisper_models.py ------------ 下载 Whisper 基座模型
 ├── tflite_export.py / test_tflite.py ----- tflite 导出与本地测试
 ├── sync_from_cloud.sh / sync_uploads_to_db.py  数据同步脚本
-├── requirements.txt / env.yaml ----------- Python 依赖
+├── requirements.txt ---------------------- Web 端依赖（pip / 环境名 whisper）
+├── env.yaml ------------------------------ 安卓 App 端环境（conda / 环境名 whisper-app）
 ├── data/
 │   └── tasks.db -------------------------- 后端数据库（用户 / 任务 / 模型记录）
 ├── static/
@@ -54,16 +55,21 @@
 
 ## 快速开始
 
-需要一张支持 CUDA 的 NVIDIA 显卡（用于微调与推理加速）。
+以下是 **Web 端**的最小启动流程（依赖用 `requirements.txt`，conda 环境名 `whisper`）。需要一张支持 CUDA 的 NVIDIA 显卡（用于微调与推理加速）。
+
+> 安卓 App 开发用的是另一套环境（`env.yaml`，环境名 `whisper-app`），见 [`doc/Adroid_app.md`](doc/Adroid_app.md)。
 
 ```bash
 # 1. 克隆代码
 git clone https://github.com/xjn-La-La-land/whisper-finetune-plus.git
 cd whisper-finetune-plus
 
-# 2. 创建并激活环境（也可自行用 venv + requirements.txt）
-conda env create -f env.yaml
-conda activate whisper
+# 2. 建环境（Python 3.11）并装依赖
+conda create -n whisper python=3.11 -y && conda activate whisper
+sudo apt update && sudo apt install ffmpeg        # 系统依赖：音频流转码
+pip install -r requirements.txt
+# torch 的 wheel 与 CUDA 强绑定，按你的机器单独装，例如 RTX 4090 + CUDA 13.0：
+pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130
 
 # 3. 下载基座模型到 ./whisper-base-models（默认 ModelScope 源，境内直连免代理）
 python download_whisper_models.py whisper-small

@@ -20,17 +20,17 @@
    cd whisper-finetune-plus
    ```
 
-3. **安装与配置**（建议先用 `conda` 或 `venv` 建一个纯净虚拟环境）
+3. **创建环境并安装依赖**（Web 端用 `requirements.txt`，conda 环境名 `whisper`）
 
    ```bash
-   # 1. 安装 ffmpeg（处理和转换前端采集的音频流）
-   sudo apt update && sudo apt install ffmpeg
-   # 2. 安装 PyTorch（带 CUDA 加速的版本）
-   #    请按本机 CUDA 版本去 PyTorch 官网 https://pytorch.org/ 获取对应命令，例如 CUDA 13.0：
-   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
-   # 3. 安装项目依赖
+   conda create -n whisper python=3.11 -y && conda activate whisper
+   sudo apt update && sudo apt install ffmpeg                 # 系统依赖：音频流转码
    pip install -r requirements.txt
+   # torch 的 wheel 与 CUDA 强绑定，按你的机器单独装，例如 RTX 4090 + CUDA 13.0：
+   pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130
    ```
+
+   > 安卓 App 开发是另一套环境（`env.yaml`，环境名 `whisper-app`），见 [`Adroid_app.md`](Adroid_app.md)。
 
 4. **下载基座模型**到 `./whisper-base-models`（默认走 ModelScope，境内直连免代理；不传模型名 = 下载全部）
 

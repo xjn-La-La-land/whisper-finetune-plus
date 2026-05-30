@@ -6,8 +6,8 @@ cd whisper-finetune-plus
 ```
 
 ```bash
-conda env create -f env.yaml
-conda activate whisper
+conda env create -f env.yaml      # 安卓 App 线专用环境，名为 whisper-app（区别于 Web 端的 whisper）
+conda activate whisper-app
 # 配置远程 modelscope 仓库
 export MODELSCOPE_TOKEN=ms-3a7e679e-994b-4a73-a5ad-c7df48405f9a
 export MODELSCOPE_REPO=hanxiaofeng218/CareSpeech-ASR
