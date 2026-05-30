@@ -10,7 +10,35 @@
 > 设计动机：
 > - 把推理从服务端 GPU 移到用户浏览器的 CPU，腾出 GPU 给训练 / 多用户使用
 > - 浏览器 WASM 方案零安装、跨平台、音频不离开用户机器（隐私更好）
-> - 复用 whisper.cpp 现成的 `examples/stream.wasm/`，支持真流式（边说边出字）
+> - 复用 whisper.cpp 现成的 `examples/whisper.wasm/`（**非流式文件模式**）：用户录完
+>   整段 / 上传整段 → 一次性 `full_default()` 出结果（2026-05-31 从流式收敛而来，见下）
+
+---
+
+## 方向调整（2026-05-31）：流式 → 非流式
+
+P0-1/P0-2 跑通后做了一次方向收敛，**正式定调**（替代原"实时流式"路线）：
+
+- **客户端 WASM 本地 CPU 推理保留**（原始动机不变：腾 GPU + 隐私 + 零安装）。曾考虑
+  "整段上传服务端 GPU"，但那会把腾 GPU / 隐私两个动机退回去，故否决。
+- **从"实时流式"改为"非流式整段识别"**：用户录完整段 / 上传整段 → 一次性喂给 WASM。
+  - 流式 `stream.wasm` 每 3s 切窗，而 whisper 架构固定吃 30s mel 窗口 → 每 3s 重跑一次
+    30s encode 还反复处理重叠音频，N 秒音频要 ~N/3 次 encode；非流式按 30s 连续切窗，
+    ~N/30 次 encode，**算力差一个数量级**。
+  - 整段不从中间切句，识别更准。
+  - small 当初被否决的唯一理由是"流式跟不上"（0.41× 余量）；改非流式后该理由消失，
+    small q5_0 单次 ~7.3s "录完即出" 可用。tiny/base 的 WASM 损耗实测仅 ~1.5×（0.75s vs
+    原生 0.5s，吃到 SIMD + 8 线程），完全够用。
+- **目标产物从 `stream.wasm`/`libstream` 换成 `whisper.wasm`/`libmain`**。JS 接口：
+  `Module.init(path_model)` 拿 context index，`Module.full_default(idx, pcmF32, 'zh', nthreads, false)`
+  整段一次性推理。注意构建 target 名是 **`libmain`**（带点的 `whisper.wasm` 不是真 target，
+  `make libmain`），产物 `libmain.js` + `libmain.wasm`。
+- **影响范围**：Phase 1 服务端 ggml 导出**完全不变**（导出链路与流式/非流式无关）；
+  Phase 2 大幅简化——删掉 ring buffer / 滑窗 / AudioWorklet 流式 / VAD 防空转，P2-3
+  缩成"录音 Blob/上传文件 → 16k 单声道 PCM → 一次 `full_default`"。
+- **备选（未采纳，已知可行）**：localhost 原生 `whisper-server`（P0-1 已编出，6.2× 满速、
+  零 WASM 损耗，但牺牲零安装，要用户跑一个本地小服务）；WebGPU（打 GPU 不打 CPU、
+  ONNX/transformers.js 生态，与现有 ggml 链路不兼容，等于换框架）。
 
 ---
 
@@ -20,7 +48,7 @@
 | --------------------------------- | ---- | ------------------------------------------------- |
 | Phase 0 可行性验证                | 4    | tiny 中文模型在目标浏览器达到 ≥1.5× 实时；WER 可接受 |
 | Phase 1 服务端 ggml 导出          | 6    | 微调后的模型能正确导出 + 下载                     |
-| Phase 2 客户端 WASM 集成          | 6    | 端到端跑通：登录 → 下载模型 → 麦克风流式识别       |
+| Phase 2 客户端 WASM 集成          | 6    | 端到端跑通：登录 → 下载模型 → 整段录音/上传识别    |
 | Phase 3 体验优化                  | 4    | 真实用户可用的体验                                |
 | Phase 4 收尾 / 退役旧路径         | 3    | 文档与代码一致                                    |
 
@@ -28,7 +56,7 @@
 
 # 🔵 Phase 0 可行性验证（先验证再大改）
 
-## [ ] P0-1 在 Linux 上编译 whisper.cpp 原生二进制
+## [x] P0-1 在 Linux 上编译 whisper.cpp 原生二进制
 
 **任务目标**
 - 验证 whisper.cpp 在用户机器上能从源码编译通过
@@ -56,9 +84,61 @@
 
 **验收**：CLI 能成功转录英文+中文 sample 音频，记录基准延迟数据。
 
+✅ 已完成 @ 2026-05-25
+   方案：去掉 `-DWHISPER_SDL2=ON` 规避 Ubuntu 24.04 libsdl2-dev 的 cmake config bug，
+   只编 whisper-cli / whisper-quantize / whisper-server。native whisper-stream 由
+   WASM 版替代（见 P0-2），不需要再编 SDL2 链路。
+
+   **环境**：
+     * conda env `whisper` (Python 3.11)
+     * cmake 3.28.3 / gcc 13.3.0 / build-essential / libsdl2-dev 都已装
+     * libsdl2-dev 的 cmake config 损坏：`/usr/include/SDL2/SDL_config.h` 引用
+       不存在的 `_real_SDL_config.h`（Ubuntu 多架构 include 路径未暴露），
+       开启 `-DWHISPER_SDL2=ON` 时编译失败。绕过办法：不传该选项
+
+   **构建**：
+     ```
+     cmake -B build                          # 注意：不加 -DWHISPER_SDL2=ON
+     cmake --build build -j --config Release
+     ```
+
+   **产物** (`/home/xiejianan/whisper.cpp/build/bin/`)：
+     * `whisper-cli`     775 KB —— 主推理 CLI
+     * `whisper-quantize` 204 KB —— ggml 量化工具（q5_0 / q4_0 等）
+     * `whisper-server`   1.1 MB —— HTTP 推理服务（备选）
+     * `whisper-bench`    24 KB
+     * `whisper-vad-speech-segments` 487 KB —— VAD 切片
+     * 注意：`main` / `bench` / `stream` (19 KB) 是 deprecation 占位，不是真二进制
+
+   **转换链路顺手打通**（提前完成 P0-3 的一部分）：
+     * 用现有 `whisper-base-models/whisper-tiny`（HF safetensors）直接转 ggml
+     * `convert-h5-to-ggml.py` 第 102 行依赖 openai/whisper repo 的
+       `whisper/assets/mel_filters.npz` (4.3 KB)
+     * 解决方案：单独 curl 下载这一个文件到临时目录，不装 openai-whisper 整包
+       （避免拉一堆依赖污染 env）
+     * 产物：`/tmp/ggml-out/ggml-model.bin` = 78 MB (fp16)，与 [models/README.md](../whisper.cpp/models/README.md) 标称大小一致
+
+   **关键性能数据**（tiny native，默认 4 线程）：
+     * 测试音频：3.12 秒中文"明天会下雨吗"
+     * 总耗时：**500.99 ms**（encoder 313 ms 占大头，decoder 2 ms）
+     * **速度 ≈ 6.2× 实时**
+     * CPU 占用 305%（3-4 核）；内存 buffer 合计 ~130 MB（conv+encode+cross+decode）
+     * 转录结果："明天會下雨嗎"（繁体输出，与现有 [inference_controller.py:298](inference_controller.py#L298)
+       一样可走 `zhconv.convert(text, "zh-cn")` 后处理）
+
+   **对 Go/No-Go 的影响**：native 6.2× 实时是个**很强的指标**。WASM 即便保守按
+   50% 性能损失，tiny 也有 ~3× 实时，**远超 1.5× 阈值**。但 small 模型计算量
+   约 5-7 倍，WASM 上 small 可能落到 0.5-1× 实时——P0-2 必须实测确认。
+
+   **遗留 / 影响后续步骤**：
+     * P1-2 `ggml_export.py` 应**自带** `mel_filters.npz`（直接拷进
+       `vendor/whisper.cpp/` 或单独 `assets/` 目录），避免依赖外部 repo
+     * Native `whisper-stream` 没编 —— 不影响项目，P0-2 走 WASM
+     * P4-2 部署文档要写明：Ubuntu 24.04+ 用 `cmake -B build`（不带 `-DWHISPER_SDL2=ON`）
+
 ---
 
-## [ ] P0-2 编译 whisper.cpp WASM 产物 + 跑通官方 stream demo
+## [x] P0-2 编译 whisper.cpp WASM 产物 + 跑通官方 stream demo
 
 **任务目标**
 - 验证 Emscripten 工具链能在本机编出 WASM
@@ -99,6 +179,105 @@
 **风险点**
 - 如果 tiny 都达不到 1.5× 实时 → 方案否决，回 GPU 路径
 - 如果 small 太慢但 tiny 够用 → 限制只支持 tiny / base / small-q5_0
+
+✅ 已完成 @ 2026-05-25
+   方案：`-DWHISPER_WASM_SINGLE_FILE=OFF` 编出分离的 `.wasm` 文件（默认 ON 嵌入
+   base64 在新版 emcc 5.x 下会 truncate），手动把 `libstream.js` / `libstream.wasm`
+   拷到 `bin/stream.wasm/` 部署目录，并修补 demo HTML 以支持自定义模型上传。
+
+   **环境**：
+     * Emscripten emcc 5.0.7（emsdk latest，~370 MB 一次性下载）
+     * Node v22.16.0（emsdk 自带）
+     * 浏览器：Chrome / Edge on Windows，访问 WSL2 上的 localhost:8000
+     * SharedArrayBuffer 可用 —— 实测 WASM 用了 **8 线程**多线程跑
+
+   **构建**（在 P0-1 已有 build 之外，单独搞一个 build-em）：
+   ```
+   git clone https://github.com/emscripten-core/emsdk.git ~/emsdk
+   cd ~/emsdk && ./emsdk install latest && ./emsdk activate latest
+   export PATH="$HOME/emsdk:$HOME/emsdk/upstream/emscripten:$PATH"
+
+   cd /home/xiejianan/whisper.cpp
+   mkdir -p build-em && cd build-em
+   emcmake cmake .. -DWHISPER_WASM_SINGLE_FILE=OFF   # 关键：必须 OFF
+   make -j libstream                                  # 注意目标名是 libstream
+   # 手动部署到 stream.wasm/ 子目录：
+   cp ../build-em/bin/libstream.js   stream.wasm/stream.js
+   cp ../build-em/bin/libstream.wasm stream.wasm/libstream.wasm
+   ```
+
+   **产物** (`build-em/bin/stream.wasm/`)：
+     * `stream.js`        97 KB —— Emscripten 生成的 JS loader
+     * `libstream.wasm`   1.2 MB —— 真正的 WASM 字节码
+     * `index.html`       21 KB —— demo 页（需打补丁，见下）
+     * `helpers.js`       6.5 KB —— IndexedDB 缓存工具
+
+   **跑测服务**：`python3 examples/server.py`（whisper.cpp 自带，默认 8000）
+   **URL**：`http://localhost:8000/whisper.cpp/stream.wasm/`（末尾路径必须带 `/stream.wasm/`，
+   server.py 的 `/whisper.cpp/` 根路径默认重定向到 `whisper.wasm` 那个 demo，不是 stream）
+
+   **遇到的坑（5 个，都要写进部署文档）**：
+     1. `-DWHISPER_SDL2=ON` 在 Ubuntu 24.04 libsdl2-dev 包 cmake config 损坏，
+        编译失败 —— 不需要 SDL2 时直接去掉这个选项（P0-1 同样的坑）
+     2. `make stream.wasm` 报 "No rule to make target" —— 因为 CMake target 名带点
+        会被 make 当成文件路径。必须 `make libstream`（实际的库 target）
+     3. `WHISPER_WASM_SINGLE_FILE=ON`（默认）在新版 emcc 5.x 下嵌入的 WASM 会被
+        truncate，浏览器报 `CompileError: section was shorter than expected`。
+        必须 `=OFF`，生成独立 `.wasm` 文件
+     4. CMake 的 post-build 复制只更新 `.js`，**不复制新生成的 `.wasm`**。改 OFF
+        重编后要手动 cp `libstream.wasm` 到 `stream.wasm/` 子目录（文件名必须叫
+        `libstream.wasm`，因为 JS loader 里 hardcode 了 `findWasmBinary()` → `locateFile("libstream.wasm")`）
+     5. `stream.wasm/index.html` 里 `<input type="file">` 被 HTML 注释包起来（demo
+        故意只暴露预设按钮），且 **`loadFile()` 函数压根没定义**。要：
+        a) 解开注释；b) 自己写一个 loadFile，里面读文件、设 `model_whisper = '...'`
+        （这步漏了 Start 按钮永远灰着）、调 `storeFS(fname, buf)` 写进 WASM FS
+
+   **关键性能数据**（WASM 8 线程，CPU only，stream.wasm 默认 step_ms=3000 / length_ms=10000）：
+
+   | 模型 | 文件大小 | WASM 内存峰值 | whisper_full() 单次 | 流式余量（step/单次）| 流式可用？ |
+   |---|---|---|---|---|---|
+   | **tiny** (HF→ggml fp16) | 78 MB | ~140 MB | **0.75 s** | **4×** | ✅ 流畅 |
+   | base (官方多语言 fp16)  | 147 MB | ~250 MB | 2.00 s | 1.5× | ✅ 临界 |
+   | **small fp16** (HF→ggml) | 488 MB | ~720 MB (预估) | — | — | ❌ 加载即 OOM |
+   | **small q5_0** (quantize) | 175 MB | ~330 MB | **7.30 s** | **0.41×** | ❌ 跑得动但跟不上 |
+
+   **流式余量公式**：step_ms / whisper_full() 耗时。≥1× 才不积压；≥1.5× 留 CPU 抖动余量。
+
+   **small fp16 OOM 内存账本**（OOM 在 compute (cross) 分配后炸）：
+     * 模型权重 487 MB + KV (self/cross/pad) 80 MB + compute buffers (conv/encode/cross/decode)
+       约 155 MB ≈ **720 MB**。Emscripten 默认 MAXIMUM_MEMORY=2GB，加上堆碎片实际 ~1.5GB，
+       720MB 理论够但实际分大块连续内存时碰碎片就炸。**架构上不能上 fp16 small**。
+
+   **识别质量观察**（同一段中文输入，未微调）：
+     * tiny：`北京官營您` / `我們一堅去哪裡玩呢` —— 错字多 + 全繁
+     * base：`北京寬迎迎` / `今天是星期幾` —— 准确度好一些但仍全繁
+     * **small q5_0**：`您好,北京欢迎您` / `明天我们去哪里玩` —— **明显更准 + 简体**
+     * 所有模型都有静音幻觉（`(字幕君)` / `(拍攝)` / token repetition `你你你你`），
+       与 WASM 无关，是 Whisper 模型本身问题。需要 VAD + 后处理
+
+   **重要结论**：
+     1. **WASM 推流方案可行**：tiny / base 都能流式跑，tiny 余量充裕（4×）
+     2. **生产强烈推荐 tiny**：4× 余量 + 78MB 下载快 + 对 LoRA 微调最敏感
+     3. **small fp16 完全不可用**：在 WASM 默认配置下加载即 OOM
+     4. **small q5_0 不适合流式**（0.41× 余量），但**质量明显胜出**，可作为
+        "非流式高质量模式"备选（例如：录完即出，能接受 7s 延迟的场景）
+     5. **双轨潜在方案**：
+        * 实时流式 → 微调后的 tiny（边说边出）
+        * 高质量批量 → small q5_0（whisper.wasm 文件模式，录完即出）
+
+   **后续影响**：
+     * P1-1 集成脚本要自动处理 5 个坑（特别是 SINGLE_FILE=OFF + 手动拷 .wasm + 改名）
+     * P1-2 ggml_export 量化默认 q5_0 仍合理（即便不用于流式，也可用于批量模式）
+     * P2-1 静态部署时记得把 `libstream.wasm` 放在跟 `stream.js` 同目录
+     * P2-2 前端集成时要写一个完整的 loadFile（在 demo HTML 漏的基础上加）
+     * P3-3 移动端 small 几乎不能用（连桌面 fp16 都 OOM），默认只暴露 tiny
+     * P4-2 部署文档要写明：访问 URL 是 `/stream.wasm/` 不是根路径
+     * 关键风险登记表里把 "WASM 在中文 small 上太慢" 升级为 "small fp16 OOM；
+       q5_0 流式跑不动；只能 tiny/base 流式"
+
+   **Phase 0 Go/No-Go 倾向**：**强 Go**。WASM tiny 性能远超阈值，唯一限制（small
+   不能流式）跟你项目的实际场景（tiny + LoRA 微调）天然匹配。最后等 P0-3 LoRA
+   端到端验证通过后，正式进 Phase 1。
 
 ---
 
@@ -161,6 +340,10 @@
 **预估工作量** 1 小时（汇总 + 讨论）
 
 **验收**：用户明确批准进入 Phase 1。
+
+✅ 决策已定 @ 2026-05-31：**Go**，但架构从"实时流式"收敛为"非流式整段识别"（见顶部
+   「方向调整」一节）。仍保留客户端 WASM 本地 CPU 推理，目标产物换成 `whisper.wasm`/`libmain`。
+   P0-3（LoRA → ggml 链路）与流式/非流式无关，仍需先跑通再正式进 Phase 1。
 
 ---
 
@@ -325,76 +508,94 @@
 ## [ ] P2-1 WASM 产物部署到 static/wasm/
 
 **任务目标**
-- 把编译好的 stream.wasm 产物放到能被前端加载的位置
+- 把编译好的 **whisper.wasm（非流式）** 产物放到能被前端加载的位置
 - 同时考虑产物体积 + gzip 压缩
 
 **相关文件**
-- `/home/xiejianan/whisper.cpp/build-em/bin/stream.wasm/`
+- `/home/xiejianan/whisper.cpp/build-em/bin/whisper.wasm/`（注意不是 stream.wasm）
 - `/home/xiejianan/whisper-finetune-plus/static/wasm/`（新建）
 
 **实施步骤**
-1. P1-1 的构建脚本已经处理拷贝，确认产物：
-   - `static/wasm/libstream.js`
-   - `static/wasm/libstream.worker.js`（如果 emcc < 3.1.58）
-   - `static/wasm/stream.wasm`（如果用 `-DWHISPER_WASM_SINGLE_FILE=OFF`，否则嵌在 js 里）
-2. 推荐 `-DWHISPER_WASM_SINGLE_FILE=OFF` 分离文件 —— WASM 字节流可以走 streaming compilation，启动更快
-3. nginx / uvicorn 静态服务确认 `application/wasm` MIME type 正确
-4. 加 `Cross-Origin-Embedder-Policy: require-corp` 和 `Cross-Origin-Opener-Policy: same-origin` 响应头 —— SharedArrayBuffer / 多线程 WASM 需要
-   - 注意：这两个头会影响 cpolar 隧道，要测一下
+1. 编译目标是 **`libmain`**（`whisper.wasm` 带点不是真 target，会被 make 当文件路径）：
+   ```bash
+   cd /home/xiejianan/whisper.cpp/build-em
+   emcmake cmake .. -DWHISPER_WASM_SINGLE_FILE=OFF   # 同 P0-2：必须 OFF
+   make -j libmain
+   ```
+2. P1-1 的构建脚本处理拷贝，确认产物（沿用 P0-2 的 5 个坑，只是文件名 stream→main）：
+   - `static/wasm/libmain.js`
+   - `static/wasm/libmain.worker.js`（如果 emcc < 3.1.58）
+   - `static/wasm/libmain.wasm`（`-DWHISPER_WASM_SINGLE_FILE=OFF` 时独立文件；JS loader 里
+     hardcode 了 `locateFile("libmain.wasm")`，文件名必须一致）
+3. 推荐 `-DWHISPER_WASM_SINGLE_FILE=OFF` 分离文件 —— WASM 字节流可以走 streaming compilation，启动更快
+4. nginx / uvicorn 静态服务确认 `application/wasm` MIME type 正确
+5. 加 `Cross-Origin-Embedder-Policy: require-corp` 和 `Cross-Origin-Opener-Policy: same-origin` 响应头 —— SharedArrayBuffer / 多线程 WASM 需要
+   - 注意：这两个头会影响隧道（现生产走 Cloudflare named tunnel），要实测确认能透传
 
 **预估工作量** 1-2 小时
 
 ---
 
-## [ ] P2-2 改造 `inference_panel.js`：WASM 模型加载流程
+## [ ] P2-2 改造 `inference_panel.js`：WASM 模型加载 + 非流式推理
 
 **任务目标**
-- 现有 [inference_panel.js](static/js/inference_panel.js) 是"调 /api/recognition"模式
-- 改造为"加载 WASM → 下载模型到 IndexedDB → 麦克风 → WASM 直接推理"
+- 现有 [inference_panel.js](static/js/inference_panel.js) 是"整段录音/上传 → POST /api/recognition"模式
+- 改造为"加载 WASM → 下载模型到 IndexedDB → 整段音频 → WASM 一次性 `full_default` 推理"
+- **好消息**：现有前端已经是"录完整段才发"（[inference_panel.js:210](static/js/inference_panel.js#L210)
+  `MediaRecorder.onstop` 才出 Blob），交互骨架可直接复用，只把"发给后端"换成"喂给 WASM"
 
 **相关文件**
 - `/home/xiejianan/whisper-finetune-plus/static/js/inference_panel.js`
 - `/home/xiejianan/whisper-finetune-plus/templates/index.html`（推理面板部分）
 - `/home/xiejianan/whisper.cpp/examples/helpers.js`（直接拷过来 `loadRemote` / `storeFS`）
-- `/home/xiejianan/whisper.cpp/examples/stream.wasm/index-tmpl.html`（参考逻辑）
+- `/home/xiejianan/whisper.cpp/examples/whisper.wasm/index-tmpl.html`（**非流式**参考逻辑，不是 stream.wasm）
 
 **实施步骤**
 1. 把 [helpers.js](whisper.cpp/examples/helpers.js) 拷到 `static/js/wasm_helpers.js`，做 ESM 化（如果项目用 ESM）
-2. inference_panel 加 lifecycle：
+2. inference_panel 加模型 lifecycle：
    - 用户选模型 → 调 `/api/published_ggml_info` 拿 etag / size
-   - 调 `loadRemote(url='/api/download_published_ggml', cacheKey=etag)`
+   - 调 `loadRemote(url='/api/download_published_ggml', cacheKey=etag)` → `storeFS('whisper.bin', buf)`
    - 进度条 UI：`cbProgress` 回调更新百分比
-   - 加载完调 `Module.init('whisper.bin', 'zh')`
-3. 推理开始：
-   - 用 `<input type="file">` 让用户传 wav → `Module.full(...)` （文件模式）
-   - 麦克风模式：参考 stream.wasm 的 SDL2 模拟层，从 `getUserMedia()` 取流喂给 WASM
-4. **关键 UX**：模型下载 ~180MB，需要明确的进度条 + "已缓存"标识
+   - 加载完调 `const idx = Module.init('whisper.bin')`（返回 context index，缓存起来复用）
+3. 推理（非流式，一次性）：
+   - 录音 `onstop` 出的整段 Blob，或 `<input type="file">` 上传的整文件
+   - → 用 `AudioContext.decodeAudioData` 解码 → 取单声道 → 重采样到 16kHz Float32 PCM（见 P2-3）
+   - → `Module.full_default(idx, pcmF32, 'zh', nthreads, false)` 一次返回
+   - 转录文本通过 demo 的 `print` 回调累积取出，再走 `zhconv` 简繁转换 + 去标点（复用现有后处理）
+4. **关键 UX**：模型下载 tiny ~78MB / small q5_0 ~175MB，需要明确的进度条 + "已缓存"标识
 
-**预估工作量** 2-3 天（前端工作量最大的部分）
+**预估工作量** 1-2 天（比原流式方案省，无 mic 流式 / 滑窗逻辑）
 
 ---
 
-## [ ] P2-3 麦克风流式输入接到 WASM
+## [ ] P2-3 整段音频解码 → 16kHz PCM → 一次性喂 WASM
+
+> 原"麦克风流式滑窗"已随非流式方向取消（无 ring buffer / 滑窗 / AudioWorklet 流式 /
+> VAD 防空转）。本项只剩"把整段录音/上传文件转成 whisper 要的 16k 单声道 Float32 PCM"。
 
 **任务目标**
-- 实现"边说边出字"：MediaStream → 16kHz PCM → WASM `whisper_full` 滑动窗口调用
+- 整段 Blob/文件 → 16kHz 单声道 Float32 PCM → `Module.full_default(idx, pcm, 'zh', nthreads, false)` 一次返回
 
 **相关文件**
-- `/home/xiejianan/whisper.cpp/examples/stream.wasm/emscripten.cpp`（参考调用方式）
+- `/home/xiejianan/whisper.cpp/examples/whisper.wasm/emscripten.cpp`（`full_default` 接口定义：`(index, audioVal, lang, nthreads, translate)`）
 - `/home/xiejianan/whisper-finetune-plus/static/js/inference_panel.js`
 
 **实施步骤**
-1. `navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } })`
-2. `AudioContext` + `AudioWorkletProcessor`（或 ScriptProcessorNode 兜底）从 MediaStream 拿到 Float32 PCM
-3. ring buffer：每 500ms 切一段，10s 窗口（参考 [stream.cpp:20-22](whisper.cpp/examples/stream/stream.cpp#L20-L22) 的 `step_ms=3000` / `length_ms=10000` / `keep_ms=200`）
-4. 调用 WASM 的推理接口，结果实时显示
-5. VAD 集成（可选）：[whisper.cpp 内置 Silero-VAD](whisper.cpp/models/convert-silero-vad-to-ggml.py) 改善体验，避免静音段空转
+1. 拿到整段音频：录音 `MediaRecorder.onstop` 的 Blob，或 `<input type="file">` 上传的文件
+2. `const ab = await blob.arrayBuffer()` → `await audioCtx.decodeAudioData(ab)` 解码为 AudioBuffer
+   （能吃 webm/opus、wav、mp3 等，浏览器原生解码，无需自己处理容器格式）
+3. 取单声道：`audioBuffer.getChannelData(0)`（多声道则混下来）
+4. 重采样到 16kHz：用 `OfflineAudioContext(1, ceil(duration*16000), 16000)` 跑一遍，
+   或简单线性插值（MediaRecorder 默认 48kHz → 16kHz）
+5. 把 Float32 PCM 传给 `Module.full_default(idx, pcm, 'zh', nthreads, false)`，一次性返回
+6. 结果经 demo 的 `print` 回调收齐 → `zhconv` 简繁 + 去标点（复用现有后处理）
 
-**预估工作量** 1-2 天
+**预估工作量** 0.5-1 天（比原流式方案大幅缩水）
 
 **风险点**
-- AudioWorklet 在某些浏览器（特别是移动 Safari）支持不一致，可能需要 ScriptProcessorNode 兜底
-- 采样率转换：MediaStream 默认是 48kHz，需要降采样到 16kHz
+- 长音频（>30s）由 whisper.cpp 内部按 30s 连续切窗处理，无需前端切；但 small q5_0
+  单窗 ~7.3s，长录音的总耗时要给用户明确的"处理中"进度反馈（不能像流式那样边说边出）
+- `decodeAudioData` 对个别浏览器的 webm/opus 兼容性，必要时 `MediaRecorder` 指定 `audio/wav`
 
 ---
 
@@ -580,7 +781,7 @@
 **第 2 周（客户端集成主战场）**
 9. P2-1 WASM 产物部署
 10. P2-2 inference_panel 改造（核心工作量）
-11. P2-3 麦克风流式
+11. P2-3 整段音频 → 16k PCM → 一次性推理
 12. P2-4 IndexedDB 缓存
 13. P2-5 浏览器兼容 + 降级
 14. P2-6 模型选择 UI
@@ -607,9 +808,9 @@
 
 | 风险                                         | 影响       | 缓解措施                                    |
 | -------------------------------------------- | ---------- | ------------------------------------------- |
-| WASM 在中文 small 模型上太慢                 | 🔴 方案否决 | P0-2 提前测；不行就只支持 tiny + base       |
+| WASM 在中文 small 模型上太慢                 | 🟢 已缓解   | 改非流式后已解：small q5_0 单次 ~7.3s"录完即出"可用；tiny/base 损耗仅 ~1.5× |
 | 量化后中文 WER 大幅退化                      | 🟠 体验差   | P0-3 测；不行就走 fp16（下载更大）          |
 | 浏览器 IndexedDB 配额不够                    | 🟠 用户报错 | 监测 `navigator.storage.estimate()`，提示用户 |
 | 移动端内存不足跑挂                           | 🟠 部分设备不可用 | 默认走 tiny；small 仅桌面浏览器             |
 | Emscripten 工具链编译失败 / 版本兼容性问题   | 🟡 部署门槛高 | 部署文档钉死 emsdk 版本                     |
-| cpolar 隧道不支持 COEP/COOP 头               | 🟡 多线程 WASM 不可用 | 单线程 WASM 兜底（性能损失 ~30%）           |
+| 隧道不透传 COEP/COOP 头（现走 Cloudflare named tunnel） | 🟡 多线程 WASM 不可用 | P2-1 实测；不行则单线程 WASM 兜底（性能损失 ~30%） |
