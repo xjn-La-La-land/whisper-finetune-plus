@@ -4,7 +4,7 @@
 # 本文件钉的版本，是在 `whisper` conda env (Python 3.11) + RTX 4090 + CUDA 13.0
 # 上实测全流程跑通过的组合。一般用法：
 #
-#     conda create -n asr python=3.11 -y && conda activate asr
+#     conda create -n whisper python=3.11 -y && conda activate whisper
 #     pip install -r requirements.txt
 #     # 然后单独按你的 GPU 装 torch（见文末"硬件相关依赖"小节）
 #
