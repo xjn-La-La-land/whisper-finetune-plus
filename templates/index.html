@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>语音采集与微调控制台 v1.1-Release</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <!-- 前端库本地化（同源加载，避免国内访问海外 CDN 慢/失败导致白屏）。见 TODO_PUBLIC_DEPLOY.md A-5。
+         Tailwind 已由 Play CDN 改为预编译静态 CSS：改 class 后用 tailwind.config.js 里的命令重新生成。 -->
+    <script src="/static/vendor/vue-3.5.35.global.prod.js"></script>
+    <link rel="stylesheet" href="/static/vendor/tailwind.css">
+    <script src="/static/vendor/echarts-5.5.0.min.js"></script>
     <style>
         /* 定义左右滑动的丝滑过场动画 */
         .slide-left-enter-active, .slide-left-leave-active,

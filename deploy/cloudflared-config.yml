@@ -1,0 +1,15 @@
+# Cloudflare 具名隧道配置 —— 拷到 ~/.cloudflared/config.yml 使用
+#
+# 隧道：carespeech    ID：df6be521-2389-407c-a4dc-d0748d8d7e50
+# 链路：本机 localhost:8000 → 隧道 → 固定入口 https://app.carespeechai.cn
+#
+# 凭据文件 df6be521-...json 放在 ~/.cloudflared/ 即可被自动发现，无需在此写 credentials-file。
+# 若启动时提示找不到凭据，再加一行（按实际用户名）：
+#   credentials-file: /home/<user>/.cloudflared/df6be521-2389-407c-a4dc-d0748d8d7e50.json
+
+tunnel: df6be521-2389-407c-a4dc-d0748d8d7e50
+
+ingress:
+  - hostname: app.carespeechai.cn
+    service: http://localhost:8000
+  - service: http_status:404

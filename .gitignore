@@ -6,3 +6,8 @@ token.txt
 output
 whisper-base-models
 .claude/settings.local.json
+# Cloudflare 隧道密钥 / 部署密钥，绝不入库
+.cloudflared/
+*.pem
+deploy/*.json
+.env
