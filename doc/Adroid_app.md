@@ -7,13 +7,19 @@ cd whisper-finetune-plus
 
 ```bash
 conda env create -f env.yaml
-conda activate asr
+conda activate whisper
 # 配置远程 modelscope 仓库
 export MODELSCOPE_TOKEN=ms-3a7e679e-994b-4a73-a5ad-c7df48405f9a
 export MODELSCOPE_REPO=hanxiaofeng218/CareSpeech-ASR
 ```
 
-2. 下载app应用
+2. 下载并打开 app 工程
+
+   ```bash
+   git clone https://github.com/xiaofeng218/whisperIME.git
+   ```
+
+   在电脑端查看 / 编译 Android app 需要安装 [Android Studio](https://developer.android.com/studio?hl=zh-cn)；用 Android Studio 打开上述工程即可。
 
 ## 启动服务
 
