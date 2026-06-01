@@ -5,11 +5,11 @@
 # 上实测全流程跑通过的组合。一般用法：
 #
 #     conda create -n whisper python=3.11 -y && conda activate whisper
-#     pip install -r requirements.txt
-#     # 然后单独按你的 GPU 装 torch（见文末"硬件相关依赖"小节）
+#     pip install -r requirements.txt        # torch + flash-attn 已钉好，一条命令装完
 #
-# 为什么不把 torch 也钉在这里：torch 的 wheel 跟 CUDA 版本强绑定，钉死会让
-# 别的 GPU/CUDA 组合的人装不上。请按你的机器选 wheel。
+# torch / flash-attn 现在也钉死了（见文末"硬件相关依赖"）：统一走 cu128，一份
+# requirements 同时覆盖 RTX 4090(Ada) 与 RTX 50 系/Blackwell。刻意不上 cu130——
+# flash-attn 没有 cu130 预编译 wheel，钉 cu130 会被迫自己源码编译（1~2 小时）。
 # ============================================================================
 
 # --- HuggingFace 生态 ---
@@ -45,29 +45,33 @@ zhconv==1.4.2
 tqdm==4.67.1
 
 # ============================================================================
-# 硬件相关依赖（不放进上面 pin 列表，按你机器情况单独装）
+# 硬件相关依赖
 # ============================================================================
+
+# --- torch —— 统一钉 cu128（不是 cu130！）---
+#   cu128 同时覆盖 RTX 4090(Ada, sm_89) 与 RTX 50 系/Blackwell(sm_120)，本仓库两台
+#   机器（Featurize 4090 生产 + 本地 5060 Laptop）都能直接用。
+#   为什么不用 cu130：flash-attn 没有 cu130 预编译 wheel，钉 cu130 会被迫源码编译。
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.8.0+cu128
+
+# --- flash-attn —— 直接钉官方预编译 wheel，绕开 PyPI sdist 的源码编译（1~2 小时）---
+#   官方 v2.8.3 wheel 用 CUDA 12.9 构建，含 sm_80/90/100/120 → 4090 与 Blackwell 都能跑。
+#   inference_controller 启动时自动 try import；没装则回退 PyTorch 内置 SDPA（零依赖、
+#   跨架构兼容），所以这行如装不上可以直接注释掉，功能不受影响。
+#   wheel 名里的 cxx11abiTRUE 必须和 torch 的 ABI 对上：torch>=2.7 的 linux cuda wheel
+#   都是 TRUE（自查：python -c "import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI)"）。
+#   换 Python/torch 小版本时去 https://github.com/Dao-AILab/flash-attention/releases 挑对应 wheel。
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
+
+# ----------------------------------------------------------------------------
+# 其他 GPU / 可选组件（按需，不影响上面的默认安装）
+# ----------------------------------------------------------------------------
 #
-# 【必装】torch —— wheel 跟 CUDA 版本强绑定
-#
-#   RTX 4090 + CUDA 13.0 + Python 3.11 （本仓库实测组合）：
-#     pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130
-#
-#   RTX 3090 / A100 + CUDA 12.8（env.yaml 历史组合）：
-#     pip install torch==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
-#
-#   其他组合到 https://pytorch.org/get-started/locally/ 查。
+#   RTX 3090 / A100：和上面一样用 cu128 即可，无需改动。
 #
 # 【可选】tensorflow + keras —— 仅 TFLite 导出需要
-#
-#   tflite_export.py 跑出的 .tflite 给安卓端用；不需要此功能可不装,
-#   finetune_controller 已用 try/except 包住 import，不会因此 fail。
-#   要启用：
+#   tflite_export.py 跑出的 .tflite 给安卓端用；不需要此功能可不装，
+#   finetune_controller 已用 try/except 包住 import，不会因此 fail。要启用：
 #     pip install tensorflow==2.12.0 keras==2.12.0
-#
-# 【可选】flash-attn —— 推理加速 (~10-20%)
-#
-#   inference_controller 启动时自动 try import；没装则用 PyTorch 内置的 SDPA
-#   (零依赖, 跨架构兼容)。要启用（要求 Ampere/Ada/Hopper, Blackwell 需 2.7+）:
-#     pip install flash-attn --no-build-isolation
 # ============================================================================
