@@ -1,0 +1,59 @@
+# ============================================================================
+# requirements-collect.txt —— 纯采集机（CPU-only）最小依赖
+#
+# 用途：长期租一台纯 CPU 机器，只跑「音频采集界面」（COLLECT_ONLY=1 模式）。
+# 这一模式下 main.py 不会 import 任何 torch / transformers 等重型依赖
+# （见 main.py 的 `if not COLLECT_ONLY:` 分支），所以这里刻意 **不** 装：
+#   torch / flash-attn / transformers / peft / bitsandbytes / modelscope /
+#   librosa / tensorflow / keras / zhconv / tqdm
+# —— 它们只服务于微调 / 识别 / 数据集构建路由，采集机一个都用不上。
+#
+# 版本与主 requirements.txt 完全对齐（都是 whisper env + Python 3.11 实测过的组合），
+# 这里只是抽出采集链路真正 import 到的那一小撮。
+#
+# 用法（采集机上）：
+#     conda create -n collect python=3.11 -y && conda activate collect
+#     pip install -r requirements-collect.txt
+#     sudo apt-get install -y ffmpeg          # 系统级依赖，见文末
+#     COLLECT_ONLY=1 uvicorn main:app --host 0.0.0.0 --port 8000
+#
+# 采集链路依赖来源（便于日后增删时核对）：
+#   main.py              -> fastapi(+CORS/StaticFiles/FileResponse), uvicorn
+#   data_collector.py    -> fastapi, pydantic, aiofiles, numpy, soundfile
+#   utils/db.py          -> aiosqlite
+#   utils/auth.py        -> bcrypt, python-jose[cryptography]
+#   utils/path_safety.py -> (仅标准库 + fastapi)
+# ============================================================================
+
+# --- FastAPI 后端 ---
+# fastapi 0.95.x 必须搭配 pydantic v1；任一升级到 v2 都需要改 BaseModel 写法
+fastapi==0.95.1
+starlette==0.26.1
+pydantic==1.10.26
+uvicorn==0.21.1
+python-multipart==0.0.22      # UploadFile/表单解析（音频上传走 multipart，必需）
+aiofiles==25.1.0
+aiosqlite==0.22.1
+
+# --- 认证（与主仓库同一套 JWT 机制）---
+bcrypt==5.0.0
+python-jose[cryptography]==3.5.0
+
+# --- 音频落盘 / 质量校验 ---
+# data_collector 用 soundfile 读 wav、numpy 算 RMS 静音判定；不需要 librosa
+numpy==1.26.4
+soundfile==0.12.1
+
+# ============================================================================
+# 系统级依赖（不是 pip 包，需单独装）
+# ============================================================================
+#
+# 【必装】ffmpeg —— data_collector 用它把上传录音统一转码成 16kHz/mono/PCM
+#   （见 data_collector.py 的 subprocess.run([... 'ffmpeg' ...])）。没装会报
+#   "音频转换失败，请检查服务器是否已安装 ffmpeg！"
+#     Ubuntu/Debian:  sudo apt-get install -y ffmpeg
+#
+# 【可能需要】libsndfile —— soundfile 的底层库。PyPI 的 soundfile wheel（x86_64
+#   及 aarch64）一般已自带，装不上声音读取报错时再补：
+#     Ubuntu/Debian:  sudo apt-get install -y libsndfile1
+# ============================================================================

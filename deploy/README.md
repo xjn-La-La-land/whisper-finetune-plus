@@ -12,6 +12,8 @@
 
 下面分两件事：**① 启动后端进程**、**② 连接 Cloudflare 隧道**。两个都是长驻进程，建议各开一个 `tmux` 窗口，方便随时回看日志。
 
+> 本文 ①② 是 **Featurize 临时机**的 tmux 跑法（完整模式，含微调/识别）。若是**长期租用的纯 CPU 采集机**（Azure / 阿里云 等，只跑采集），请直接看文末「**长期常驻机部署（systemd）**」一节——用 systemd 托管，崩溃自动重启、重启服务器自动拉起。
+
 ---
 
 ## ① 启动后端
@@ -142,3 +144,98 @@ cloudflared tunnel info carespeech   # 看隧道当前连接数
 - **没用镜像的全新实例**：凭据仍在 `~/work/`（持久不丢），但 home 里的二进制和软链接没了 → 补做 **2.1**（下载）+ **2.2 的两条 `ln`**（重建软链接，无需重传凭据），再跑 ① 和 2.3。
 
 > ⚠️ 启动 ① 前务必确认 `JWT_SECRET_KEY` 还在（`echo "$JWT_SECRET_KEY"` 非空）。全新实例若 home 被冲掉，`~/.bashrc` 里的那行也会丢，需要按 **1.0** 重新写入（用之前存好的同一个值，**不要重新生成**，否则又会把大家登出）。
+
+---
+
+## 长期常驻机部署（systemd · Azure / 阿里云 等）
+
+上面 ①② 是 Featurize **临时机**的 tmux 跑法。若是**长期租用的纯 CPU 机**（Azure for Students / 阿里云轻量 等），只跑「音频采集」（`COLLECT_ONLY=1`，不加载 torch / 识别 / 微调），用 systemd 托管更稳：**崩溃自动重启、重启服务器自动拉起**，彻底告别 tmux。
+
+unit 文件都在 `deploy/systemd/`：
+
+| 文件 | 作用 |
+| --- | --- |
+| `carespeech-collect.service` | uvicorn 采集后端（`COLLECT_ONLY=1`），崩溃自动重启 |
+| `carespeech-tunnel.service` | cloudflared 隧道（`--protocol http2`），断线自动重连，后端起来后再连 |
+| `collect.env.example` | `JWT_SECRET_KEY` 模板（机密单独存放，勿入库） |
+
+**前提**：仓库已 clone；conda 环境（如 `collect`）已用 `requirements-collect.txt` 装好；已 `sudo apt install ffmpeg`；cloudflared 二进制 + 凭据已按 **② 的 2.1 / 2.2** 就位。
+
+### S1 改 unit 里的路径
+
+先查出 uvicorn 绝对路径：
+
+```bash
+conda activate collect && which uvicorn
+# 例：/home/azureuser/miniconda3/envs/collect/bin/uvicorn
+```
+
+两个 `.service` 里凡是带 `>>>` 注释的行都要按本机改：`User=` / `Group=`、`WorkingDirectory=`（仓库根）、`ExecStart=` 里的 uvicorn 绝对路径，以及 tunnel 单元里的 cloudflared 路径 + `--config` 路径。默认值是 `ubuntu` + `~/miniconda3`，用户名不同就批量换：
+
+```bash
+cd ~/whisper-finetune-plus/deploy/systemd
+sed -i 's#/home/ubuntu#/home/azureuser#g' carespeech-*.service     # 按实际用户名替换
+```
+
+### S2 安装到系统目录
+
+```bash
+cd ~/whisper-finetune-plus
+
+# 1) 机密：JWT_SECRET_KEY（放 /etc，root 拥有，chmod 600）
+sudo mkdir -p /etc/carespeech
+sudo cp deploy/systemd/collect.env.example /etc/carespeech/collect.env
+sudo nano /etc/carespeech/collect.env        # 填入长期固定的 JWT_SECRET_KEY
+sudo chmod 600 /etc/carespeech/collect.env
+
+# 2) 两个 unit
+sudo cp deploy/systemd/carespeech-collect.service /etc/systemd/system/
+sudo cp deploy/systemd/carespeech-tunnel.service  /etc/systemd/system/
+
+# 3) 让 systemd 重新读配置
+sudo systemctl daemon-reload
+```
+
+> 还没固定密钥就先 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成一次，存进密码管理器长期复用。**从 Featurize 迁数据时，想让已登录用户不被踢下线，就在这里填和 Featurize 一模一样的值。**
+
+### S3 开机自启 + 立即启动
+
+```bash
+sudo systemctl enable --now carespeech-collect.service
+sudo systemctl enable --now carespeech-tunnel.service
+```
+
+`enable` = 开机自动拉起，`--now` = 顺便现在就启动。
+
+### S4 验证
+
+```bash
+systemctl status carespeech-collect carespeech-tunnel --no-pager   # 均为 active (running)
+curl -s http://127.0.0.1:8000/api/config                           # {"collect_only":true}
+journalctl -u carespeech-tunnel -n 30 --no-pager                   # 出现 Registered tunnel connection
+```
+
+浏览器开 **https://app.carespeechai.cn**：能登录、能录音上传即成功。
+
+### 日常运维速查
+
+```bash
+journalctl -u carespeech-collect -f        # 实时日志（-f 跟随，Ctrl-C 退出）
+journalctl -u carespeech-tunnel  -f
+
+sudo systemctl restart carespeech-collect  # git pull 改了代码后，重启后端即可（隧道不用动）
+sudo systemctl stop  carespeech-collect carespeech-tunnel   # 停
+sudo systemctl start carespeech-collect carespeech-tunnel   # 起
+sudo systemctl disable carespeech-collect carespeech-tunnel # 取消开机自启
+
+# 改了 .service 文件本身后，必须先 daemon-reload 再 restart 才生效
+sudo systemctl daemon-reload && sudo systemctl restart carespeech-collect
+```
+
+**重启服务器后**：什么都不用做——两个服务已 `enable`，开机按「后端 → 隧道」顺序自动拉起。
+
+### 几个要点
+
+- `COLLECT_ONLY=1` 已写死在 collect 单元里，这台机即便误装了 torch 也不会去加载，稳。
+- 用 `User=xxx` 跑时 systemd 会把 `$HOME` 设为该用户家目录，cloudflared 能在 `~/.cloudflared/` 自动找到 `<UUID>.json`。万一日志报找不到凭据，在 `~/.cloudflared/config.yml` 里补一行 `credentials-file: /home/<user>/.cloudflared/df6be521-2389-407c-a4dc-d0748d8d7e50.json`。
+- 采集用 SQLite，保持**单 uvicorn 进程**（不加 `--workers`）最稳，也最省小机器内存。

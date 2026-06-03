@@ -1,0 +1,37 @@
+# CareSpeech Cloudflare 具名隧道 (cloudflared)
+# 安装到: /etc/systemd/system/carespeech-tunnel.service
+#
+# 链路: 本机 127.0.0.1:8000 → 隧道 carespeech → https://app.carespeechai.cn
+# 隧道/凭据/配置沿用 deploy/README.md ② 的方案（~/.cloudflared/config.yml + <UUID>.json）。
+#
+# 部署前需按本机实际情况改 3 处（已用 >>> 标注）:
+#   1) User= / Group=               —— 与凭据所在 home 对应的用户
+#   2) ExecStart= 里 cloudflared 路径 —— 默认 ~/.local/bin/cloudflared
+#   3) --config 的绝对路径           —— 该用户的 ~/.cloudflared/config.yml
+
+[Unit]
+Description=CareSpeech Cloudflare tunnel (cloudflared)
+After=network-online.target carespeech-collect.service
+Wants=network-online.target carespeech-collect.service
+
+[Service]
+Type=simple
+# >>> 改成你的用户（凭据 ~/.cloudflared/<UUID>.json 必须是这个用户能读到的）
+User=ubuntu
+Group=ubuntu
+
+# --protocol http2: 规避部分网络对 QUIC(UDP) 的干扰（沿用现有 runbook）
+# --no-autoupdate:  服务环境别自动更新二进制
+# --config:         显式指定配置，避免 systemd 下 HOME 推断带来的找不到配置问题
+# >>> 两处绝对路径按实际用户名改
+ExecStart=/home/ubuntu/.local/bin/cloudflared tunnel --protocol http2 --no-autoupdate --config /home/ubuntu/.cloudflared/config.yml run
+
+# 隧道断了自动重连
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

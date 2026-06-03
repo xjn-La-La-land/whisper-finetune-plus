@@ -1,0 +1,44 @@
+# CareSpeech 音频采集后端 (uvicorn, COLLECT_ONLY 轻量模式)
+# 安装到: /etc/systemd/system/carespeech-collect.service
+#
+# 部署前需按本机实际情况改 3 处（已用 >>> 标注）:
+#   1) User= / Group=      —— 跑服务的系统用户（Ubuntu VPS 默认多为 ubuntu）
+#   2) WorkingDirectory=   —— 仓库根目录绝对路径
+#   3) ExecStart= 里的 uvicorn 绝对路径 —— 用 `conda activate collect && which uvicorn` 查出来填
+#
+# 不要在 systemd 里 `conda activate`（那是 shell 函数，systemd 不认）。
+# 正确做法是直接指向 conda 环境内的 uvicorn 绝对路径。
+
+[Unit]
+Description=CareSpeech audio-collection backend (uvicorn, COLLECT_ONLY)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# >>> 改成你的用户
+User=ubuntu
+Group=ubuntu
+# >>> 改成仓库根目录
+WorkingDirectory=/home/ubuntu/whisper-finetune-plus
+
+# 采集模式：跳过所有 torch/AI 重型依赖（见 main.py 的 COLLECT_ONLY 分支）
+Environment=COLLECT_ONLY=1
+Environment=PYTHONUNBUFFERED=1
+# JWT_SECRET_KEY 等机密放独立文件，别写进本 unit、别入库。
+# 见同目录 collect.env.example；部署时拷到 /etc/carespeech/collect.env 并 chmod 600。
+EnvironmentFile=/etc/carespeech/collect.env
+
+# >>> 改成 conda 环境 collect 里的 uvicorn 绝对路径
+ExecStart=/home/ubuntu/miniconda3/envs/collect/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+
+# 崩溃自动拉起
+Restart=always
+RestartSec=3
+
+# 日志统一进 journald（journalctl -u carespeech-collect 查看）
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
