@@ -4,7 +4,7 @@ import { apiFetch, sseUrl } from './api.js?v=1.2';
 
 export default {
     template: '#tpl-finetune-panel',
-    props: ['currentUser'],
+    props: ['currentUser', 'hasGpu'],
     setup(props) {
         // --- 状态与参数 ---
         const hasDataset = ref(false);
@@ -646,6 +646,12 @@ export default {
         // --- 动作：启动微调 ---
         const handleStartFinetune = async () => {
             if (!props.currentUser || !hasDataset.value) return;
+            // CPU 环境拦在最前面：微调需要 GPU（语音识别仍可在 CPU 上用）。
+            // 后端 start_finetune 也会再兜一层底（503）。
+            if (!props.hasGpu) {
+                await dialog.alert("当前为 CPU 环境，微调需要 GPU 平台。语音识别可以在 CPU 上正常使用。", { variant: 'warning' });
+                return;
+            }
             if (!finetuneParams.value.model_name.trim()) {
                 await dialog.alert("请先输入模型名称", { variant: 'warning' });
                 return;

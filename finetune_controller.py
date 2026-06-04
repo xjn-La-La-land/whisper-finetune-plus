@@ -97,19 +97,23 @@ def _list_base_model_dirs():
         return []
     models = []
     for entry in os.scandir(BASE_MODELS_DIR):
-        if entry.is_dir():
+        # whisper-base-models/ggml/ 是导出的 ggml 产物目录（P1-6），不是基座，跳过
+        if entry.is_dir() and entry.name != "ggml":
             models.append(entry.name)
     return sorted(models)
 
 
 def _build_base_model_payload():
     local_models = set(_list_base_model_dirs())
+    ggml_dir = os.path.join(BASE_MODELS_DIR, "ggml")
     all_models = []
     for model_name in SUPPORTED_BASE_MODELS:
         state = BASE_MODEL_DOWNLOAD_STATE.get(model_name, {"status": "idle", "message": ""})
         all_models.append({
             "name": model_name,
             "is_downloaded": model_name in local_models,
+            # 该基座的 ggml(q5_0) 是否已生成（供前端判断能否走浏览器 WASM 推理，P1-6）
+            "has_ggml": os.path.exists(os.path.join(ggml_dir, f"{model_name}_q5_0.bin")),
             "download_status": state.get("status", "idle"),
             "download_message": state.get("message", ""),
         })
@@ -246,6 +250,29 @@ async def run_finetune_process(username: str, req: FinetuneRequest):
                     except Exception as ex:
                         print(f"[{username}] TFLite 导出过程中出现异常: {ex}")
                     # -----------------------------
+
+                    # --- 新增：自动导出 ggml（供浏览器端 whisper.cpp WASM 推理）---
+                    # 与 tflite 同策略：失败只记日志、不影响训练成果落库（用户仍可用旧 GPU 推理路径降级）。
+                    # 产物：output/<user>/<model>/ggml/whisper.bin (fp16) + whisper_q5_0.bin（浏览器实际加载这个）。
+                    try:
+                        from ggml_export import run_ggml_export
+                        ggml_output = safe_join(output_dir, "ggml", "whisper.bin")
+                        ggml_checkpoint = safe_join(output_dir, "checkpoint-final")
+
+                        print(f"[{username}] 正在将模型导出为 ggml (q5_0)...")
+                        ok, msg = run_ggml_export(
+                            base_model_path=base_model_path,
+                            checkpoint_path=ggml_checkpoint,
+                            output_path=ggml_output,
+                            quantize="q5_0",
+                        )
+                        if ok:
+                            print(f"[{username}] ggml 自动导出完成：{ggml_output}（含 q5_0 量化）")
+                        else:
+                            print(f"[{username}] ggml 自动导出失败：{msg}")
+                    except Exception as ex:
+                        print(f"[{username}] ggml 导出过程中出现异常: {ex}")
+                    # -----------------------------
                 else:
                     print(f"[{username}] 警告：未找到模型输出目录，无法写入模型记录")
             else:
@@ -271,6 +298,19 @@ async def start_finetune(
     background_tasks: BackgroundTasks,
     current_user: str = Depends(get_current_user),
 ):
+    # 微调必须有可用 GPU。前端在 CPU 环境会把按钮置灰，这里再兜一层底，
+    # 防止直接打接口绕过前端（也覆盖前端拿到的 /api/config 已过期的情况）。
+    try:
+        import torch
+        gpu_ok = bool(torch.cuda.is_available())
+    except ImportError:
+        gpu_ok = False
+    if not gpu_ok:
+        raise HTTPException(
+            status_code=503,
+            detail="当前为 CPU 环境，微调需要 GPU 平台。请在带 GPU 的机器上启动微调（语音识别可在 CPU 上使用）。",
+        )
+
     model_name = req.model_name.strip()
     if not model_name:
         raise HTTPException(status_code=400, detail="模型名称不能为空")

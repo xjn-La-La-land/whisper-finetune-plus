@@ -32,7 +32,8 @@
 ├── inference_controller.py --------------- 推理控制 API（含 GPU 模型热插拔）
 ├── shared_state.py ----------------------- GPU 状态 / 显存占用管理
 ├── download_whisper_models.py ------------ 下载 Whisper 基座模型
-├── tflite_export.py / test_tflite.py ----- tflite 导出与本地测试
+├── tflite_export.py / test_tflite.py ----- tflite 导出与本地测试（安卓 app 用）
+├── ggml_export.py --------------------------- LoRA→ggml 导出 + q5_0 量化（whisper.cpp WASM 推理用）
 ├── sync_from_cloud.sh / sync_uploads_to_db.py  数据同步脚本
 ├── requirements.txt ---------------------- Web 端依赖（pip / 环境名 whisper）
 ├── env.yaml ------------------------------ 安卓 App 端环境（conda / 环境名 whisper-app）
@@ -40,7 +41,8 @@
 │   └── tasks.db -------------------------- 后端数据库（用户 / 任务 / 模型记录）
 ├── static/
 │   ├── js/ ------------------------------- 前端逻辑（app / 采集 / 微调 / 推理面板等）
-│   └── vendor/ --------------------------- 本地化的前端依赖库
+│   ├── vendor/ --------------------------- 本地化的前端依赖库
+│   └── wasm/ ----------------------------- 浏览器端 whisper.cpp WASM 推理产物（libmain.* / helpers.js）
 ├── templates/
 │   └── index.html ------------------------ 前端单页
 ├── uploads/ ------------------------------ 各用户的音频与文本（按用户名分目录）
@@ -48,6 +50,9 @@
 ├── output/ ------------------------------- tflite 等导出产物
 ├── whisper-base-models/ ------------------ 下载的基座模型
 ├── utils/ -------------------------------- 工具模块（auth / db / 音频处理等）
+├── scripts/ ------------------------------ 构建脚本（build_whisper_cpp.sh：编 native + WASM）
+├── vendor/ ------------------------------- 第三方子模块 whisper.cpp + 转换资产（mel_filters）
+├── bin/ ---------------------------------- whisper.cpp native 二进制（编译生成，未入库）
 ├── deploy/ ------------------------------- 公网部署（Cloudflare 隧道配置 + 运行手册）
 ├── doc/ ---------------------------------- 文档（Web.md / Adroid_app.md）
 └── assets/ ------------------------------- 文档图片与示例音频
@@ -60,8 +65,9 @@
 > 安卓 App 开发用的是另一套环境（`env.yaml`，环境名 `whisper-app`），见 [`doc/Adroid_app.md`](doc/Adroid_app.md)。
 
 ```bash
-# 1. 克隆代码
-git clone https://github.com/xjn-La-La-land/whisper-finetune-plus.git
+# 1. 克隆代码（--recursive 一并拉取 whisper.cpp 子模块；
+#    已 clone 过没带的话补一句： git submodule update --init --recursive）
+git clone --recursive https://github.com/xjn-La-La-land/whisper-finetune-plus.git
 cd whisper-finetune-plus
 
 # 2. 建环境（Python 3.11）并装依赖
@@ -74,7 +80,16 @@ pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu1
 # 3. 下载基座模型到 ./whisper-base-models（默认 ModelScope 源，境内直连免代理）
 python download_whisper_models.py whisper-small
 
-# 4. 启动后端
+# 4.（仅「会导出 / 量化模型」的 GPU 机需要）编译 whisper.cpp native 二进制
+#    供 ggml_export.py 的 q5_0 量化用；浏览器端 WASM 产物已随仓库提交(static/wasm/)，
+#    无需重编。（升级 whisper.cpp 版本想重编 WASM 时再装 emsdk，见 TODO_WHISPER_CPP_WASM.md）
+scripts/build_whisper_cpp.sh --native-only
+
+# 4b.（可选，让"没微调过的用户"也能用浏览器 WASM 推理）把基座转成 ggml
+#     产物落到 whisper-base-models/ggml/（不入库，部署时生成）。依赖第 4 步的 whisper-quantize。
+python ggml_export.py --base-models        # 默认 tiny/base/small（medium 太大、浏览器跑不动）
+
+# 5. 启动后端
 uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 

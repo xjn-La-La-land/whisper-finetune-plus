@@ -2,7 +2,7 @@ const { createApp, ref, onMounted, watchEffect, nextTick } = Vue;
 
 import CustomAudio from './custom_audio.js?v=1.2';
 import AudioCollector from './audio_collector.js?v=1.2';
-import FinetunePanel from './finetune_panel.js?v=1.5';
+import FinetunePanel from './finetune_panel.js?v=1.6';
 import InferencePanel from './inference_panel.js?v=1.3';
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch, setToken, clearToken, getToken, getStoredUsername } from './api.js?v=1.2';
@@ -14,6 +14,7 @@ const app = createApp({
         const loginInput = ref("");
         const passwordInput = ref("");
         const isCollectOnly = ref(false);
+        const hasGpu = ref(false);   // 本机是否有可用 GPU（来自 /api/config，控制「微调」能否启动）
 
         // --- 主题（dark=星空 / light=原亮色），记忆到 localStorage（沿用 whisper_* 习惯）---
         let savedTheme = 'dark';
@@ -132,6 +133,7 @@ const app = createApp({
                 const configRes = await fetch('/api/config');
                 const configData = await configRes.json();
                 isCollectOnly.value = configData.collect_only;
+                hasGpu.value = !!configData.has_gpu;
             } catch (e) {
                 console.error("获取系统配置失败", e);
             }
@@ -181,6 +183,7 @@ const app = createApp({
             loginInput,
             passwordInput,
             isCollectOnly,
+            hasGpu,
             currentTab,
             transitionName,
             theme,

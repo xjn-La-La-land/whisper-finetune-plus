@@ -52,31 +52,89 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # 注册采集路由 (必须开启)
 app.include_router(collector_router)
 
-# 2. 读取环境变量开关 (默认是 0，即完整模式)
-# 如果 COLLECT_ONLY 为 "1"，则只开启采集功能
+# ---------------------------------------------------------------------------
+# 2. 启动模式 = 显式开关 (COLLECT_ONLY) + 运行时能力探测 (torch / CUDA)
+#
+#   - COLLECT_ONLY=1：纯采集门户（公网给标注员用 / 纯 CPU 常驻机刻意不装 torch）。
+#     语义不变：只挂采集路由，前端只显示「音频采集」一个 tab。
+#   - COLLECT_ONLY=0：完整模式。这里不再假设一定有 GPU，而是探测本机能力：
+#       · HAS_TORCH —— torch 能否 import（决定推理 / 微调路由是否注册）
+#       · HAS_GPU   —— 有没有 CUDA（决定「微调」能否真正启动；推理 CPU/GPU 都行）
+#     推理在 CPU 上也能跑（inference_controller 会自动退回 cpu + float32），
+#     所以 CPU 机器照样显示三个 tab，只是「微调」在前端置灰、后端兜底拒绝。
+# ---------------------------------------------------------------------------
 COLLECT_ONLY = os.environ.get("COLLECT_ONLY", "0") == "1"
+
+HAS_TORCH = False
+HAS_GPU = False
+if not COLLECT_ONLY:
+    try:
+        import torch
+        HAS_TORCH = True
+        HAS_GPU = bool(torch.cuda.is_available())
+    except ImportError:
+        # 非采集模式却没装 torch：不崩，按「推理 / 微调不可用」降级
+        # （前端三个 tab 仍在，但相关功能禁用）。
+        print("⚠️ 未检测到 torch：推理与微调将不可用（如需启用请安装 torch / transformers 等依赖）。")
+
+# 微调：必须有 GPU。
+FINETUNE_ENABLED = HAS_GPU
+
+# 服务端推理路由 /api/recognition 是否注册（顶层 import torch，需装了 torch 才有）。
+# 注意：推理的「主路径」规划是浏览器端 whisper.cpp WASM（见 TODO_WHISPER_CPP_WASM.md），
+# WASM 跑在用户浏览器、不依赖服务端 torch/GPU。所以这个标志只代表「服务端 GPU 兜底
+# 路径是否可用」，**不要**用它来决定前端是否显示推理 tab —— WASM 能力由前端自己探测
+# (WebAssembly / SIMD / IndexedDB，见 P2-5)。
+SERVER_INFERENCE_FALLBACK = HAS_TORCH
 
 @app.get("/api/config")
 async def get_system_config():
-    """让前端知道当前是否处于'仅采集'模式"""
-    return {"collect_only": COLLECT_ONLY}
+    """
+    把启动能力暴露给前端：
+      - collect_only        纯采集门户（只显示采集 tab）
+      - has_gpu             本机是否有可用 GPU
+      - finetune_enabled    微调是否可用（需 GPU）
+      - server_inference    服务端推理兜底 /api/recognition 是否可用（装了 torch 即可）。
+                            推理主路径是浏览器 WASM，能否用由前端自行探测，与此无关。
+    """
+    return {
+        "collect_only": COLLECT_ONLY,
+        "has_gpu": HAS_GPU,
+        "finetune_enabled": FINETUNE_ENABLED,
+        "server_inference": SERVER_INFERENCE_FALLBACK,
+    }
 
-if not COLLECT_ONLY:
+if COLLECT_ONLY:
+    print("🚀 轻量采集模式启动 (COLLECT_ONLY=1)：已跳过所有 AI 模型依赖！")
+else:
+    # 微调 / 数据集路由顶层不依赖 torch（训练在子进程里跑），有没有 torch 都先挂上；
+    # 真正能不能开训由 FINETUNE_ENABLED 决定（前端置灰 + 后端 start_finetune 兜底）。
     try:
-        # 只有在非 collect-only 模式下，才去 import 那些包含 torch 的重型模块
         from dataset_builder import router as dataset_router
         from finetune_controller import router as finetune_router
-        from inference_controller import router as inference_router
-
-        # 注册重型路由
         app.include_router(dataset_router)
         app.include_router(finetune_router)
-        app.include_router(inference_router)
-        print("✅ 完整模式启动：已成功加载微调和语音识别模块。")
     except ImportError as e:
-        print(f"⚠️ 警告: 缺少核心依赖 ({e})，为防止崩溃，系统将仅以采集模式运行。")
-else:
-    print("🚀 轻量采集模式启动 (COLLECT_ONLY=1)：已跳过所有 AI 模型依赖！")
+        FINETUNE_ENABLED = False
+        print(f"⚠️ 警告: 微调 / 数据集模块依赖缺失 ({e})，已跳过这两个模块。")
+
+    # 推理模块顶层 import torch，只有装了 torch 才注册（即「服务端 GPU 兜底」路径）。
+    # 推理主路径是浏览器端 WASM，不经过这里。
+    if SERVER_INFERENCE_FALLBACK:
+        try:
+            from inference_controller import router as inference_router
+            app.include_router(inference_router)
+        except ImportError as e:
+            SERVER_INFERENCE_FALLBACK = False
+            print(f"⚠️ 警告: 服务端推理模块依赖缺失 ({e})，已跳过（不影响浏览器 WASM 推理）。")
+
+    # 启动概要
+    if HAS_GPU:
+        print("✅ 完整模式启动（GPU）：微调 + 语音识别均可用。")
+    elif HAS_TORCH:
+        print("✅ CPU 模式启动：语音识别可用（CPU 推理）；微调需 GPU，已禁用。")
+    else:
+        print("⚠️ 降级启动：未装 torch，仅采集相关接口可用；推理 / 微调均不可用。")
 
 
 # 前端页面入口

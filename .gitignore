@@ -5,6 +5,9 @@ __pycache__
 token.txt
 output
 whisper-base-models
+
+# whisper.cpp native 二进制（平台相关，由 scripts/build_whisper_cpp.sh 编译生成，不入库）
+/bin/
 .claude/settings.local.json
 # Cloudflare 隧道密钥 / 部署密钥，绝不入库
 .cloudflared/
