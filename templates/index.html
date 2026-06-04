@@ -534,7 +534,7 @@
 
             <transition :name="transitionName" mode="out-in">
                 <keep-alive>
-                    <component :is="currentTab" :current-user="currentUser"></component>
+                    <component :is="currentTab" :current-user="currentUser" :has-gpu="hasGpu"></component>
                 </keep-alive>
             </transition>
             
@@ -945,11 +945,15 @@
             </div>
 
             <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 text-center transition hover:shadow-md" :class="!hasDataset ? 'opacity-60 pointer-events-none grayscale-[30%]' : ''">
-                <button @click="handleStartFinetune" :disabled="isTraining || !hasDataset || modelNameStatus.state === 'taken' || modelNameStatus.state === 'invalid'" class="w-full md:w-auto bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 disabled:from-gray-300 disabled:to-gray-400 text-white px-12 py-5 rounded-full font-extrabold text-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3 shadow-xl mx-auto mb-6 disabled:transform-none disabled:shadow-none">
-                    <svg v-if="!isTraining" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <button @click="handleStartFinetune" :disabled="isTraining || !hasDataset || !hasGpu || modelNameStatus.state === 'taken' || modelNameStatus.state === 'invalid'" :title="!hasGpu ? '当前为 CPU 环境，微调需 GPU 平台' : ''" class="w-full md:w-auto bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 disabled:from-gray-300 disabled:to-gray-400 text-white px-12 py-5 rounded-full font-extrabold text-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3 shadow-xl mx-auto mb-6 disabled:transform-none disabled:shadow-none">
+                    <svg v-if="!hasGpu" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <svg v-else-if="!isTraining" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <svg v-else class="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    {{ isTraining ? '模型正在努力学习中...' : '启动微调训练！' }}
+                    {{ !hasGpu ? '微调需 GPU 平台（当前为 CPU）' : (isTraining ? '模型正在努力学习中...' : '启动微调训练！') }}
                 </button>
+                <p v-if="!hasGpu" class="text-sm font-bold text-amber-600 mb-3">
+                    ⚠️ 当前运行环境没有 GPU，无法启动微调。请在带 GPU 的平台部署后再来训练；「语音识别」可以在 CPU 上正常使用。
+                </p>
                 <p v-if="selectedModelName && !isTraining" class="text-sm font-bold text-gray-500 mb-3">
                     正在查看模型 <span class="text-blue-600">「{{ selectedModelName }}」</span> 的训练曲线
                 </p>
@@ -1202,7 +1206,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=1.5"></script>
+    <script type="module" src="/static/js/app.js?v=1.6"></script>
     <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>

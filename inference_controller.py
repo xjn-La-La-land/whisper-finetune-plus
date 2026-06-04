@@ -74,7 +74,8 @@ def resolve_base_model_paths():
         return {}
     models = {}
     for entry in os.scandir(BASE_MODELS_DIR):
-        if entry.is_dir():
+        # whisper-base-models/ggml/ 是导出的 ggml 产物目录（P1-6），不是基座模型，跳过
+        if entry.is_dir() and entry.name != "ggml":
             models[entry.name] = entry.path
     return models
 
@@ -105,6 +106,9 @@ async def resolve_user_model_path(username: str):
 
         checkpoint_path = safe_join(model_dir, "checkpoint-final")
         tflite_path = safe_join(model_dir, "whisper_model.tflite")
+        # 浏览器 WASM 实际加载的是量化版 q5_0；以它存在与否作为 has_ggml 判据
+        # （与 has_tflite 一样按文件存在性现查，不进 DB 列）。
+        ggml_q5_path = safe_join(model_dir, "ggml", "whisper_q5_0.bin")
 
         if os.path.exists(checkpoint_path):
             valid_models.append({
@@ -113,6 +117,7 @@ async def resolve_user_model_path(username: str):
                 "is_published": bool(row["is_published"]),
                 "version_tag": row["version_tag"],
                 "has_tflite": os.path.exists(tflite_path),
+                "has_ggml": os.path.exists(ggml_q5_path),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"]
             })
@@ -241,6 +246,113 @@ async def download_published_model(current_user: str = Depends(get_current_user)
         path=tflite_path,
         filename=f"whisper_{model_name}.tflite",
         media_type="application/octet-stream"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ggml（q5_0）下载 / 信息接口 —— 供浏览器端 whisper.cpp WASM 推理加载模型（P1-5）。
+# 与上面 tflite 的 latest_model_info / download_published_model 并列，但服务的是
+# output/<user>/<model>/ggml/whisper_q5_0.bin（量化版，浏览器实际加载这个）。
+# ---------------------------------------------------------------------------
+def _ggml_etag(path: str) -> str:
+    """基于文件 mtime + size 的 ETag（download 与 info 用同一函数，保证两端一致便于前端比对）。"""
+    st = os.stat(path)
+    return f'"{int(st.st_mtime)}-{st.st_size}"'
+
+
+async def _resolve_published_ggml(current_user: str):
+    """定位该用户【已发布】模型的 ggml(q5_0) 文件。
+    返回 (model_name, version_tag, ggml_path)；未发布或文件缺失时 ggml_path 为 None。"""
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT model_name, version_tag FROM models WHERE username = ? AND is_published = 1 LIMIT 1',
+            (current_user,)
+        )
+        row = await cursor.fetchone()
+    if not row:
+        return None, None, None
+    model_name, version_tag = row[0], row[1]
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    ggml_path = safe_resolve_under(
+        user_output_root, os.path.join(model_name, "ggml", "whisper_q5_0.bin")
+    )
+    if not ggml_path or not os.path.exists(ggml_path):
+        return model_name, version_tag, None
+    return model_name, version_tag, ggml_path
+
+
+@router.get("/api/published_ggml_info")
+async def get_published_ggml_info(current_user: str = Depends(get_current_user)):
+    """供前端 WASM 流程轮询：当前发布模型的 ggml(q5_0) 信息，用于判断要不要重新下载。"""
+    model_name, version_tag, ggml_path = await _resolve_published_ggml(current_user)
+    if not ggml_path:
+        return {"has_published": False}
+    return {
+        "has_published": True,
+        "model_name": model_name,
+        "version_tag": version_tag,
+        "file_size": os.path.getsize(ggml_path),
+        "etag": _ggml_etag(ggml_path),
+    }
+
+
+@router.get("/api/download_published_ggml")
+async def download_published_ggml(current_user: str = Depends(get_current_user), v: str = ""):
+    """供前端 WASM 加载流程 fetch：下载已发布模型的 ggml(q5_0) 二进制。
+
+    缓存策略：浏览器端真正的缓存是 IndexedDB（见 P2-4），HTTP 缓存只是锦上添花。
+    - 带 ?v=<version_tag>（前端从 /api/published_ggml_info 取）：URL 随版本唯一，可安全
+      长缓存 immutable，重发布换了 version_tag 自然是新 URL，不会取到旧文件。
+    - 不带 v：同一 URL 的内容可能随“发布了另一个模型”而变，故只用 no-cache 兜底，避免取旧。
+    """
+    model_name, version_tag, ggml_path = await _resolve_published_ggml(current_user)
+    if not ggml_path:
+        raise HTTPException(status_code=404, detail="该用户尚未发布带 ggml 的模型")
+    cache_control = "public, max-age=31536000, immutable" if v else "no-cache"
+    return FileResponse(
+        path=ggml_path,
+        filename=f"whisper_{model_name}_q5_0.bin",
+        media_type="application/octet-stream",
+        headers={"Cache-Control": cache_control, "ETag": _ggml_etag(ggml_path)},
+    )
+
+
+# 基座模型的 ggml（q5_0），供没微调过的用户也能跑 WASM 推理（P1-6）。由部署时
+# `python ggml_export.py --base-models` 生成到 whisper-base-models/ggml/<name>_q5_0.bin。
+BASE_GGML_DIR = os.path.join(BASE_MODELS_DIR, "ggml")
+
+
+def _resolve_base_ggml(model: str):
+    """校验 model 是真实基座目录名（白名单，排除派生的 ggml/）+ 定位其 q5_0；返回 path 或 None。"""
+    if not os.path.isdir(BASE_MODELS_DIR):
+        return None
+    valid = {e.name for e in os.scandir(BASE_MODELS_DIR) if e.is_dir() and e.name != "ggml"}
+    if model not in valid:
+        return None
+    path = safe_resolve_under(BASE_GGML_DIR, f"{model}_q5_0.bin")
+    if not path or not os.path.exists(path):
+        return None
+    return path
+
+
+@router.get("/api/download_base_ggml")
+async def download_base_ggml(model: str, current_user: str = Depends(get_current_user)):
+    """下载基座模型的 ggml(q5_0)，供未微调用户的浏览器 WASM 推理。
+
+    基座内容固定不变（whisper-tiny 权重永远是那一份）→ 同一 URL 内容恒定，可直接 immutable
+    长缓存，无需像用户模型那样带 ?v=。鉴权沿用 get_current_user（与全站一致）。
+    """
+    path = _resolve_base_ggml(model)
+    if not path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"基座 {model} 的 ggml 不存在（部署时需先跑 `python ggml_export.py --base-models` 生成）"
+        )
+    return FileResponse(
+        path=path,
+        filename=f"{model}_q5_0.bin",
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "public, max-age=31536000, immutable", "ETag": _ggml_etag(path)},
     )
 
 
