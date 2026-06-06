@@ -29,6 +29,10 @@ export default {
         const isLoadingModels = ref(false);
         const selectedModelName = ref("");   // 当前在 loss 看板回放曲线的模型名
         const deletingModel = ref("");       // 正在删除的模型名（控制按钮 spinner / 禁用）
+        // 模型导出（ggml/tflite）状态：{ model_name: { ggml:{status,message}, tflite:{status} } }；轮询填充
+        const exportStates = ref({});
+        const publishingModel = ref("");     // 正在发布的模型名
+        let exportPollTimer = null;
 
         // --- 模型名称实时校验状态 ---
         // state: 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
@@ -727,6 +731,8 @@ export default {
             await refreshStepStatus();
             await loadBaseModelOptions();
             await loadUserModels();
+            await fetchExportStatus();
+            if (anyExporting()) startExportPolling();
             await checkTrainingStatus();
         });
 
@@ -737,6 +743,8 @@ export default {
             await refreshStepStatus();
             await loadBaseModelOptions();
             await loadUserModels();
+            await fetchExportStatus();
+            if (anyExporting()) startExportPolling();
             await checkTrainingStatus();
         });
 
@@ -780,6 +788,7 @@ export default {
             if (eventSource) eventSource.close();
             if (myChart) myChart.dispose();
             stopBaseModelPolling();
+            stopExportPolling();
             window.removeEventListener('resize', handleResize);
             window.removeEventListener('whisper:theme', applyChartTheme);
         });
@@ -817,6 +826,74 @@ export default {
             showPublishModal.value = false;
         };
 
+        // --- 模型导出管理（ggml / tflite / 发布）方案 A：三个独立动作 ---
+        const exportStatusOf = (modelName, kind) =>
+            (exportStates.value[modelName] && exportStates.value[modelName][kind] && exportStates.value[modelName][kind].status) || 'idle';
+        const isExporting = (modelName, kind) => exportStatusOf(modelName, kind) === 'running';
+        const exportError = (modelName) => {
+            const m = exportStates.value[modelName] || {};
+            if (m.ggml && m.ggml.status === 'error') return 'ggml: ' + (m.ggml.message || '失败');
+            if (m.tflite && m.tflite.status === 'error') return 'TFLite: ' + (m.tflite.message || '失败');
+            return '';
+        };
+        const anyExporting = () => Object.values(exportStates.value || {}).some(
+            (m) => (m.ggml && m.ggml.status === 'running') || (m.tflite && m.tflite.status === 'running'));
+
+        const fetchExportStatus = async () => {
+            try {
+                const res = await apiFetch('/api/export_status', { cache: 'no-store' });
+                if (res.ok) exportStates.value = await res.json();
+            } catch (e) { /* 忽略，下次轮询再试 */ }
+        };
+        const stopExportPolling = () => { if (exportPollTimer) { clearInterval(exportPollTimer); exportPollTimer = null; } };
+        const startExportPolling = () => {
+            if (exportPollTimer) return;
+            exportPollTimer = setInterval(async () => {
+                await fetchExportStatus();
+                if (!anyExporting()) { stopExportPolling(); await loadUserModels(); }   // 导出完 → 刷新徽章
+            }, 2000);
+        };
+
+        const exportModel = async (model, kind) => {   // kind: 'ggml' | 'tflite'
+            if (isTraining.value) { await dialog.alert('训练进行中，暂时无法导出', { variant: 'warning' }); return; }
+            try {
+                const res = await apiFetch(`/api/export_${kind}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_name: model.model_name }),
+                });
+                if (!res.ok) { const d = await res.json(); await dialog.alert('导出失败：' + d.detail, { variant: 'warning' }); return; }
+                // 乐观置 running + 启动轮询
+                exportStates.value = {
+                    ...exportStates.value,
+                    [model.model_name]: { ...(exportStates.value[model.model_name] || {}), [kind]: { status: 'running' } },
+                };
+                startExportPolling();
+            } catch (e) {
+                await dialog.alert('网络请求失败，无法开始导出', { variant: 'danger' });
+            }
+        };
+
+        // 发布已训练好的模型（复用 /api/publish_model；需先有 TFLite）
+        const publishExistingModel = async (model) => {
+            if (!model.has_tflite) { await dialog.alert('请先「导出 TFLite」，再发布到 ModelScope', { variant: 'warning' }); return; }
+            const ok = await dialog.confirm(`将「${model.model_name}」发布到 ModelScope？发布后安卓客户端会同步更新。`);
+            if (!ok) return;
+            publishingModel.value = model.model_name;
+            try {
+                const res = await apiFetch('/api/publish_model', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_name: model.model_name }),
+                });
+                const data = await res.json();
+                if (res.ok) { await dialog.alert('发布成功！客户端现在可以检测到更新了。', { variant: 'success', title: '🚀 发布成功' }); await loadUserModels(); }
+                else { await dialog.alert('发布失败：' + data.detail, { variant: 'danger' }); }
+            } catch (e) {
+                await dialog.alert('网络请求失败，无法发布模型', { variant: 'danger' });
+            } finally {
+                publishingModel.value = "";
+            }
+        };
+
         return {
             chartRef,
             datasetParams,
@@ -851,6 +928,13 @@ export default {
             isLoadingModels,
             selectedModelName,
             deletingModel,
+            exportStates,
+            exportStatusOf,
+            isExporting,
+            exportError,
+            publishingModel,
+            exportModel,
+            publishExistingModel,
             formatTime,
             loadUserModels,
             viewModelCurve,

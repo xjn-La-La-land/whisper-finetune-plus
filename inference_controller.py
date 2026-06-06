@@ -356,6 +356,31 @@ async def download_base_ggml(model: str, current_user: str = Depends(get_current
     )
 
 
+@router.get("/api/download_user_ggml")
+async def download_user_ggml(model: str, current_user: str = Depends(get_current_user), v: str = ""):
+    """下载【当前用户自己】某个微调模型的 ggml(q5_0)，供浏览器 WASM 本地推理。
+
+    与 download_published_ggml 的区别：**不要求已发布**。发布（publish_model）是给
+    Android / ModelScope 用的；浏览器本地推理只需要 ggml 文件本身。这样用户微调完、
+    自动导出 ggml 后，无需走发布流程就能在浏览器里用上自己的模型。
+    鉴权 + 路径都收口在 current_user 自己的 output 目录下。
+    """
+    if not is_valid_model_name(model):
+        raise HTTPException(status_code=400, detail="模型名称非法")
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    ggml_path = safe_resolve_under(user_output_root, os.path.join(model, "ggml", "whisper_q5_0.bin"))
+    if not ggml_path or not os.path.exists(ggml_path):
+        raise HTTPException(status_code=404, detail=f"模型 {model} 还没有 ggml 版本（训练后会自动生成，旧模型可用 ggml_export.py 补生成）")
+    # 前端带 ?v=<updated_at> 做缓存隔离（重训会变）→ 可 immutable 长缓存；不带则 no-cache。
+    cache_control = "public, max-age=31536000, immutable" if v else "no-cache"
+    return FileResponse(
+        path=ggml_path,
+        filename=f"{model}_q5_0.bin",
+        media_type="application/octet-stream",
+        headers={"Cache-Control": cache_control, "ETag": _ggml_etag(ggml_path)},
+    )
+
+
 def unload_inference_cache():
     """彻底卸载显存中的推理模型并清空缓存。
 

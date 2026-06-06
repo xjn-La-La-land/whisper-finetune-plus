@@ -1,6 +1,7 @@
 # main.py
 import os
-from fastapi import FastAPI
+import mimetypes
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,10 +40,30 @@ if ALLOWED_ORIGINS:
 else:
     print("🌐 CORS 未配置 ALLOWED_ORIGINS，所有跨域请求会被浏览器拦截（同源不受影响）")
 
+# ---------------------------------------------------------------------------
+# 跨源隔离（COOP + COEP）：浏览器端 whisper.cpp WASM 用 pthread 多线程，依赖
+# SharedArrayBuffer，而它只在 crossOriginIsolated 上下文可用——这要求文档响应带
+# 下面两个头。本站资源全是同源 / 本地（无外部 CDN，已核对 templates/index.html），
+# 故 require-corp 安全，不会拦掉任何现有子资源。
+#
+# 部署注意：生产走 Cloudflare 具名隧道，需实测这两个头能否透传；若被剥掉，退路是
+# 客户端 coi-serviceworker 注入（见 TODO_WHISPER_CPP_WASM.md P2-1 / 风险登记）。
+# ---------------------------------------------------------------------------
+@app.middleware("http")
+async def add_cross_origin_isolation(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    return response
+
 # 确保基础目录存在
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("data", exist_ok=True)
 os.makedirs("dataset", exist_ok=True)
+
+# 让 StaticFiles 用正确 MIME 发 .wasm —— application/wasm 才能走浏览器流式编译，
+# 且 COEP 下 MIME 不对会被拒。Python 3.11 的 mimetypes 不一定认识 .wasm，显式注册。
+mimetypes.add_type("application/wasm", ".wasm")
 
 # 注意：uploads/ 不再通过 StaticFiles 公开（StaticFiles 不走依赖系统，
 # 任何人猜到 /uploads/{user}/task_X.wav 都能下载）。音频统一走受保护路由
