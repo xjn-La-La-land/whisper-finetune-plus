@@ -1003,10 +1003,33 @@
                                 <span class="font-extrabold text-gray-800 truncate">{{ model.model_name }}</span>
                                 <span v-if="model.is_published" class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[11px] font-bold">已发布</span>
                                 <span v-if="model.has_tflite" class="inline-flex items-center px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100 text-[11px] font-bold">TFLite</span>
+                                <span v-if="model.has_ggml" class="inline-flex items-center px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100 text-[11px] font-bold">ggml</span>
                             </div>
                             <p class="text-xs text-gray-400 mt-1">训练完成时间：{{ formatTime(model.updated_at) || '未知' }}</p>
+                            <p v-if="exportError(model.model_name)" class="text-[11px] text-rose-500 mt-1">导出失败：{{ exportError(model.model_name) }}</p>
                         </div>
-                        <div class="flex items-center gap-2 flex-shrink-0">
+                        <div class="flex flex-wrap items-center gap-2 sm:justify-end">
+                            <button @click="exportModel(model, 'ggml')" :disabled="isTraining || isExporting(model.model_name,'ggml')"
+                                    :title="model.has_ggml ? '已有 ggml，点可重新生成' : '生成 ggml（浏览器本地推理用）'"
+                                    class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed bg-white border"
+                                    :class="model.has_ggml ? 'text-violet-600 border-violet-200 hover:bg-violet-50' : 'text-gray-600 border-gray-200 hover:bg-gray-50'">
+                                <svg v-if="isExporting(model.model_name,'ggml')" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                {{ isExporting(model.model_name,'ggml') ? '导出中…' : (model.has_ggml ? '重导 ggml' : '导出 ggml') }}
+                            </button>
+                            <button @click="exportModel(model, 'tflite')" :disabled="isTraining || isExporting(model.model_name,'tflite')"
+                                    :title="model.has_tflite ? '已有 TFLite，点可重新生成' : '生成 TFLite（安卓端 / 发布用）'"
+                                    class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed bg-white border"
+                                    :class="model.has_tflite ? 'text-sky-600 border-sky-200 hover:bg-sky-50' : 'text-gray-600 border-gray-200 hover:bg-gray-50'">
+                                <svg v-if="isExporting(model.model_name,'tflite')" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                {{ isExporting(model.model_name,'tflite') ? '导出中…' : (model.has_tflite ? '重导 TFLite' : '导出 TFLite') }}
+                            </button>
+                            <button @click="publishExistingModel(model)" :disabled="!model.has_tflite || publishingModel===model.model_name || isTraining"
+                                    :title="!model.has_tflite ? '需先导出 TFLite 才能发布' : '发布到 ModelScope（安卓端同步更新）'"
+                                    class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                    :class="model.is_published ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50'">
+                                <svg v-if="publishingModel===model.model_name" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                {{ publishingModel===model.model_name ? '发布中…' : (model.is_published ? '重新发布' : '发布') }}
+                            </button>
                             <button @click="viewModelCurve(model)"
                                     :disabled="isTraining"
                                     :title="isTraining ? '训练进行中，暂时无法切换查看其它模型' : '在上方看板回放该模型的训练曲线'"
@@ -1100,6 +1123,7 @@
                         {{ currentStatus || '等待输入音频...' }}
                     </span>
                     <span v-if="isProcessing" class="inline-block w-2 h-5 bg-blue-400 animate-pulse align-middle ml-2 rounded-sm shadow-lg shadow-blue-500/40"></span>
+                    <span v-if="isProcessing && processingElapsed" class="text-[11px] text-blue-400/70 font-mono ml-2 flex-shrink-0">{{ processingElapsed }}s</span>
                 </div>
 
                 <div class="rounded-2xl bg-gray-950/60 px-3 py-2.5 md:px-3.5 md:py-3">
@@ -1130,56 +1154,83 @@
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-stretch">
-                <div class="lg:col-span-3 bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-blue-50">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="flex flex-col gap-2">
-                            <label class="text-xs font-bold text-gray-400 uppercase ml-1">识别权重模型</label>
-                            <div class="relative w-full">
-                                <select v-model="params.selected_model" class="appearance-none bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 pr-10 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner w-full">
-                                    <option disabled value="">请选择模型</option>
-                                    <option v-for="baseModel in baseModelOptions" :key="`base-${baseModel}`" :value="baseModel">
-                                        {{ baseModel }} (base)
-                                    </option>
-                                    <option v-for="model in modelOptions" :key="`finetuned-${model.model_name}`" :value="model.model_name">
-                                        {{ model.is_published ? '⭐ ' : '' }}{{ model.model_name }} (finetuned)
-                                    </option>
-                                </select>
-                                <span class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-blue-500 text-xs">▼</span>
-                            </div>
-                            <div class="flex items-center gap-2 mt-1">
-                                <span v-if="params.selected_model"
-                                    class="text-[10px] font-bold uppercase px-2 py-1 rounded-full w-fit"
-                                    :class="selectedModelTag() === 'base' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'">
-                                    {{ selectedModelTag() }}
-                                </span>
-                                <button v-if="selectedModelTag() === 'finetuned'" 
-                                        @click="publishModel(params.selected_model)"
-                                        class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition">
-                                    🚀 发布为正式版
-                                </button>
-                            </div>
+                <div class="lg:col-span-3 bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-blue-50 space-y-4">
+                    <!-- 推理方式：本地 WASM / 服务端 GPU -->
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold text-gray-400 uppercase ml-1">推理方式</label>
+                        <div class="flex bg-blue-50 p-1 rounded-2xl border border-blue-100">
+                            <button @click="setMode('local')" :disabled="!localSupported"
+                                    :title="localSupported ? '在你的浏览器本地识别，音频不上传服务器' : localUnsupportedReason"
+                                    class="flex-1 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center justify-center gap-1.5"
+                                    :class="[mode==='local' ? 'bg-blue-500 text-white shadow' : 'text-gray-500 hover:text-blue-500', !localSupported ? 'opacity-40 cursor-not-allowed' : '']">
+                                ⚡ 本地浏览器
+                            </button>
+                            <button @click="setMode('server')"
+                                    class="flex-1 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center justify-center gap-1.5"
+                                    :class="mode==='server' ? 'bg-blue-500 text-white shadow' : 'text-gray-500 hover:text-blue-500'">
+                                ☁ 服务端 GPU
+                            </button>
                         </div>
+                        <div v-if="!localSupported" class="text-[11px] text-amber-600 ml-1">⚠ {{ localUnsupportedReason }}，已用服务端</div>
+                    </div>
 
-                        <div class="flex flex-col gap-2">
-                            <label class="text-xs font-bold text-gray-400 uppercase ml-1">解码精度 (Beams)</label>
-                            <input type="number" min="1" max="5" v-model.number="params.num_beams" class="w-full max-w-[120px] bg-gray-50 border-none rounded-2xl px-4 py-3 text-center font-bold focus:ring-2 focus:ring-blue-400">
-                            <div class="text-xs text-gray-400 ml-1">值越高越精细，速度会略慢</div>
+                    <!-- 模型选择 -->
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold text-gray-400 uppercase ml-1">识别权重模型</label>
+                        <div class="relative w-full">
+                            <select v-model="selectedModel" class="appearance-none bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 pr-10 font-bold text-blue-600 focus:ring-2 focus:ring-blue-400 shadow-inner w-full">
+                                <option disabled value="">请选择模型</option>
+                                <option v-for="b in baseModelOptions" :key="`base-${b}`" :value="b">
+                                    {{ b }} (base){{ mode==='local' && !hasLocal(b) ? ' · 无本地版' : '' }}
+                                </option>
+                                <option v-for="m in userModels" :key="`ft-${m.model_name}`" :value="m.model_name">
+                                    {{ m.is_published ? '⭐ ' : '' }}{{ m.model_name }} (finetuned){{ mode==='local' && !hasLocal(m.model_name) ? ' · 无本地版' : '' }}
+                                </option>
+                            </select>
+                            <span class="pointer-events-none absolute inset-y-0 right-4 flex items-center text-blue-500 text-xs">▼</span>
                         </div>
+                        <span v-if="selectedModel" class="text-[10px] font-bold uppercase px-2 py-1 rounded-full w-fit"
+                              :class="selectedModelTag() === 'base' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'">
+                            {{ selectedModelTag() }}
+                        </span>
+                    </div>
 
-                        <div class="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                            <label class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 flex items-center gap-2 cursor-pointer font-bold text-gray-600 transition hover:border-blue-300 hover:text-blue-500">
-                                <input type="checkbox" v-model="params.to_simple" class="w-5 h-5 text-blue-600 rounded-lg"> 简体中文输出
-                            </label>
-                            <label class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 flex items-center gap-2 cursor-pointer font-bold text-gray-600 transition hover:border-blue-300 hover:text-blue-500">
-                                <input type="checkbox" v-model="params.remove_pun" class="w-5 h-5 text-blue-600 rounded-lg"> 去除标点符号
-                            </label>
-                        </div>
+                    <!-- 本地模型卡片（仅本地模式）-->
+                    <div v-if="mode==='local'" class="rounded-2xl border-2 border-dashed px-4 py-3"
+                         :class="localState==='ready' ? 'border-emerald-200 bg-emerald-50/40' : (localState==='unavailable' ? 'border-amber-200 bg-amber-50/40' : 'border-blue-200 bg-blue-50/40')">
+                        <template v-if="localState==='unavailable'">
+                            <div class="text-sm font-bold text-amber-700">该模型没有本地版本</div>
+                            <div class="text-[11px] text-amber-600 mt-0.5">请切到「服务端 GPU」，或换一个有本地版的模型（基座 tiny/base/small，或你已发布⭐的模型）。</div>
+                        </template>
+                        <template v-else>
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-bold text-gray-700 truncate">
+                                        {{ selectedModel }}
+                                        <span v-if="cardInfo && cardInfo.sizeMB" class="text-gray-400 font-medium">· {{ cardInfo.sizeMB }}MB</span>
+                                    </div>
+                                    <div class="text-[11px] mt-0.5" :class="localState==='ready' ? 'text-emerald-600' : 'text-blue-600'">
+                                        <span v-if="localState==='ready'">⚡ 已缓存 · 可离线</span>
+                                        <span v-else-if="localState==='loading'">⏳ 加载到内存中…</span>
+                                        <span v-else-if="localState==='downloading'">⬇ 下载中 {{ downloadPct }}%（{{ downloadRecvMB }}MB）</span>
+                                        <span v-else>⬇ 首次使用需下载到浏览器</span>
+                                    </div>
+                                </div>
+                                <button v-if="localState==='need-download'" @click="downloadModel"
+                                        class="shrink-0 bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-blue-600 transition">下载模型</button>
+                                <button v-else-if="localState==='ready'" @click="redownloadModel"
+                                        class="shrink-0 border border-gray-200 text-gray-500 text-xs font-bold px-3 py-2 rounded-xl hover:bg-gray-50 transition">重新下载</button>
+                            </div>
+                            <div v-if="localState==='downloading'" class="mt-2 h-2 bg-blue-100 rounded-full overflow-hidden">
+                                <div class="h-full bg-blue-500 transition-all duration-200" :style="{ width: downloadPct + '%' }"></div>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
                 <div class="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
-                    <button @click="toggleRecording" :disabled="isProcessing && !isRecording"
-                            class="rounded-2xl font-extrabold transition-all duration-300 flex items-center justify-center shadow-xl gap-3 px-4 py-5"
+                    <button @click="toggleRecording" :disabled="!canCapture && !isRecording"
+                            class="rounded-2xl font-extrabold transition-all duration-300 flex items-center justify-center shadow-xl gap-3 px-4 py-5 disabled:opacity-50 disabled:cursor-not-allowed"
                             :class="isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-500 text-white hover:bg-blue-600'">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path v-if="!isRecording" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 18a5 5 0 005-5V8a5 5 0 10-10 0v5a5 5 0 005 5zm0 0v3m-4 0h8"></path>
@@ -1187,7 +1238,8 @@
                         </svg>
                         <span class="text-lg">{{ isRecording ? '停止识别' : '开始录音识别' }}</span>
                     </button>
-                    <button @click="$refs.audioInput.click()" class="bg-white border border-blue-200 text-blue-600 py-4 rounded-2xl font-bold text-sm hover:bg-blue-50 transition shadow-sm flex items-center justify-center gap-2">
+                    <button @click="$refs.audioInput.click()" :disabled="!canCapture"
+                            class="bg-white border border-blue-200 text-blue-600 py-4 rounded-2xl font-bold text-sm hover:bg-blue-50 transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 014-4h2l2-3h2l2 3h2a4 4 0 110 8H7a4 4 0 01-4-4z"></path>
                         </svg>
@@ -1206,7 +1258,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=1.6"></script>
+    <script type="module" src="/static/js/app.js?v=1.9"></script>
     <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>

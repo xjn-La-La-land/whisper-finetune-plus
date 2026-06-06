@@ -644,6 +644,110 @@ async def publish_model(
     }
 
 
+# ---------------------------------------------------------------------------
+# 模型导出管理（ggml / tflite）—— 给已训练模型按需补生成产物，供用户精细管理（方案 A）。
+# 导出耗时（merge + 转换 + 量化，约 1-2 分钟），用「后台任务 + 状态字典 + 前端轮询」；
+# EXPORT_LOCK 串行化（避免 TF/torch 并发 OOM）；训练进行中禁止导出（抢 CPU/显存）。
+# 发布走已有的 /api/publish_model（它已接受 model_name），这里不重复。
+# ---------------------------------------------------------------------------
+EXPORT_LOCK = asyncio.Lock()
+# username -> { model_name -> { "ggml": {"status","message"}, "tflite": {...} } }
+EXPORT_STATE: dict = {}
+
+
+def _set_export_state(username, model_name, kind, status, message=""):
+    EXPORT_STATE.setdefault(username, {}).setdefault(model_name, {})[kind] = {
+        "status": status, "message": message,
+    }
+
+
+def _get_export_status(username, model_name, kind):
+    return EXPORT_STATE.get(username, {}).get(model_name, {}).get(kind, {}).get("status", "idle")
+
+
+def _resolve_base_for_checkpoint(checkpoint_dir):
+    """从 checkpoint 的 adapter_config.json 反查基座，映射到本机 whisper-base-models/<name>
+    （adapter 里存的是训练机的绝对路径，取 basename 更可移植）。找不到返回 None。"""
+    cfg = os.path.join(checkpoint_dir, "adapter_config.json")
+    if not os.path.exists(cfg):
+        return None
+    try:
+        with open(cfg, "r", encoding="utf-8") as f:
+            base = json.load(f).get("base_model_name_or_path", "")
+    except Exception:
+        return None
+    if not base:
+        return None
+    p = os.path.join(BASE_MODELS_DIR, os.path.basename(base.rstrip("/")))
+    return p if os.path.isdir(p) else None
+
+
+async def _do_export(username, model_name, kind):
+    """后台执行导出：串行（EXPORT_LOCK）+ 阻塞任务丢线程池（不卡 event loop）。"""
+    async with EXPORT_LOCK:
+        _set_export_state(username, model_name, kind, "running")
+        try:
+            model_dir = safe_join(safe_join(OUTPUT_BASE, username), model_name)
+            checkpoint = safe_join(model_dir, "checkpoint-final")
+            if not os.path.isdir(checkpoint):
+                _set_export_state(username, model_name, kind, "error", "找不到 checkpoint-final")
+                return
+            base = _resolve_base_for_checkpoint(checkpoint)
+            if not base:
+                _set_export_state(username, model_name, kind, "error", "无法定位基座模型（adapter_config 缺失或基座未下载）")
+                return
+            if kind == "ggml":
+                from ggml_export import run_ggml_export
+                out = safe_join(model_dir, "ggml", "whisper.bin")
+                ok, msg = await asyncio.to_thread(run_ggml_export, base, checkpoint, out, "q5_0")
+            else:  # tflite
+                os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+                from tflite_export import run_tflite_export
+                out = safe_join(model_dir, "whisper_model.tflite")
+                ok, msg = await asyncio.to_thread(run_tflite_export, base, checkpoint, out)
+            _set_export_state(username, model_name, kind, "done" if ok else "error", "" if ok else (msg or "导出失败"))
+            print(f"[{username}] {kind} 导出{'成功' if ok else '失败'}: {model_name}")
+        except Exception as e:
+            _set_export_state(username, model_name, kind, "error", str(e))
+            print(f"[{username}] {kind} 导出异常: {model_name} {e}")
+
+
+class ExportRequest(BaseModel):
+    model_name: str
+
+
+def _start_export(req: "ExportRequest", background_tasks: BackgroundTasks, current_user: str, kind: str):
+    name = req.model_name.strip()
+    if not is_valid_model_name(name):
+        raise HTTPException(status_code=400, detail="模型名称非法")
+    model_dir = safe_join(safe_join(OUTPUT_BASE, current_user), name)
+    if not os.path.isdir(safe_join(model_dir, "checkpoint-final")):
+        raise HTTPException(status_code=404, detail="模型不存在或缺少 checkpoint-final")
+    if GPU_STATE.get("status") != GPUStatus.IDLE:
+        raise HTTPException(status_code=423, detail=f"GPU 正在 {GPU_STATE.get('status')}，请等训练结束再导出")
+    if EXPORT_LOCK.locked() or _get_export_status(current_user, name, kind) == "running":
+        raise HTTPException(status_code=409, detail="已有导出任务在进行，请稍后再试")
+    _set_export_state(current_user, name, kind, "running")   # 立即置 running，避免轮询空窗
+    background_tasks.add_task(_do_export, current_user, name, kind)
+    return {"message": f"{kind} 导出已开始"}
+
+
+@router.post("/api/export_ggml")
+async def export_ggml(req: ExportRequest, background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
+    return _start_export(req, background_tasks, current_user, "ggml")
+
+
+@router.post("/api/export_tflite")
+async def export_tflite(req: ExportRequest, background_tasks: BackgroundTasks, current_user: str = Depends(get_current_user)):
+    return _start_export(req, background_tasks, current_user, "tflite")
+
+
+@router.get("/api/export_status")
+async def export_status(current_user: str = Depends(get_current_user)):
+    """当前用户所有模型的导出状态：{ model_name: { ggml:{status,message}, tflite:{status,message} } }"""
+    return EXPORT_STATE.get(current_user, {})
+
+
 # 模型检查
 @router.get("/api/check_model")
 async def check_model(current_user: str = Depends(get_current_user)):
