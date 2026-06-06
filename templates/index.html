@@ -338,6 +338,20 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .35); border-radius: 9999px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 
+        /* —— 识别文本流：底部边缘拖动调节高度（句柄 + 抓握条）—— */
+        .transcript-resizer {
+            height: 14px; margin-top: 2px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: ns-resize; touch-action: none; user-select: none;
+        }
+        .transcript-resizer .grip {
+            height: 4px; width: 44px; border-radius: 9999px;
+            background: rgba(148, 163, 184, .35);
+            transition: background .15s ease, width .15s ease;
+        }
+        .transcript-resizer:hover .grip { background: rgba(96, 165, 250, .8); width: 60px; }
+        .transcript-resizer.is-dragging .grip { background: rgba(96, 165, 250, 1); width: 64px; }
+
         /* ========================================================================
            主题切换：light / dark。dark = 星空（`.sky-bg` 背景 + `.vg-app` 深色皮）；
            light = 去掉 `.vg-app`（回原生 Tailwind 亮色）+ 藏星空 + 还原浅蓝 body。
@@ -1146,7 +1160,7 @@
 
                 <div class="rounded-2xl bg-gray-950/60 px-3 py-2.5 md:px-3.5 md:py-3">
                     <div class="text-[10px] md:text-[11px] text-gray-400 font-semibold tracking-wide mb-2 pl-1">识别文本流（自动滚动）</div>
-                    <div ref="historyContainer" class="h-[40vh] md:h-[46vh] overflow-y-auto pr-1 md:pr-2 custom-scrollbar space-y-2">
+                    <div ref="historyContainer" :style="{ height: panelHeight + 'px' }" class="overflow-y-auto pr-1 md:pr-2 custom-scrollbar space-y-2">
                     <div v-if="transcriptItems.length === 0" class="text-gray-500 text-sm text-center py-12">
                         识别结果会显示在这里，支持滚动查看历史记录。
                     </div>
@@ -1168,6 +1182,11 @@
                         </div>
                     </div>
                 </div>
+                    <!-- 底部边缘拖动手柄：调节识别文本流显示高度 -->
+                    <div class="transcript-resizer" :class="{ 'is-dragging': resizing }"
+                         @pointerdown="startResize" title="拖动调节显示高度">
+                        <div class="grip"></div>
+                    </div>
                 </div>
             </div>
 
@@ -1283,7 +1302,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=2.5"></script>
+    <script type="module" src="/static/js/app.js?v=2.6"></script>
     <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>
