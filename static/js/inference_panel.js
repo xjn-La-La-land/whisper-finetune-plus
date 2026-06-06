@@ -55,6 +55,30 @@ export default {
         // --- 终端 / 回放 ---
         const transcriptItems = ref([]);
         const historyContainer = ref(null);
+
+        // —— 识别文本流：底部边缘拖动调节高度（持久化到 localStorage）——
+        const PANEL_H_KEY = 'cs:transcriptPanelH';
+        const panelHeight = ref(Math.round(window.innerHeight * 0.46)); // 默认≈原 46vh
+        const resizing = ref(false);
+        const clampPanelH = (h) => Math.max(160, Math.min(h, Math.round(window.innerHeight * 0.85)));
+        const startResize = (e) => {
+            e.preventDefault();
+            resizing.value = true;
+            const startY = e.clientY;
+            const startH = panelHeight.value;
+            const onMove = (ev) => { panelHeight.value = clampPanelH(startH + (ev.clientY - startY)); };
+            const onUp = () => {
+                resizing.value = false;
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                document.body.style.userSelect = '';
+                try { localStorage.setItem(PANEL_H_KEY, String(panelHeight.value)); } catch (_) {}
+            };
+            document.body.style.userSelect = 'none';           // 拖动时禁止选中文本
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+        };
+
         const currentStatus = ref('等待输入音频...');
         const statusType = ref('system');
         const copiedItemId = ref(null);
@@ -389,6 +413,10 @@ export default {
 
         // --- 生命周期 ---
         onMounted(async () => {
+            try {                                              // 恢复上次拖动设定的高度
+                const saved = parseInt(localStorage.getItem(PANEL_H_KEY), 10);
+                if (saved) panelHeight.value = clampPanelH(saved);
+            } catch (_) {}
             const cap = await wasm.detectCapabilities();
             localSupported.value = cap.ok;
             localUnsupportedReason.value = cap.reason;
@@ -451,7 +479,8 @@ export default {
             selectedModel, userModels, baseModelOptions, isBaseModelName, selectedModelTag, hasLocal,
             localState, cardInfo, downloadPct, downloadRecvMB, downloadModel, redownloadModel,
             isRecording, isProcessing, processingElapsed, canCapture, audioInput,
-            transcriptItems, historyContainer, currentStatus, statusType, copiedItemId,
+            transcriptItems, historyContainer, panelHeight, resizing, startResize,
+            currentStatus, statusType, copiedItemId,
             usedModelType, tempAudioPath,
             localError, fallbackToServer, retryLocal, dismissFallback,
             micHint, recordBtnClass,
