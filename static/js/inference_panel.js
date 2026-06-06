@@ -1,7 +1,7 @@
 const { ref, computed, onMounted, onActivated, nextTick, watch } = Vue;
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch } from './api.js?v=1.2';
-import * as wasm from './wasm_whisper.js?v=1.1';
+import * as wasm from './wasm_whisper.js?v=1.3';
 import { loadConverter, toSimplified } from './zhconv_lite.js?v=1.0';
 
 // 基座 q5_0 的近似大小（仅用于卡片展示，真实大小以下载时 content-length 为准）
@@ -18,6 +18,8 @@ export default {
         const mode = ref('server');               // 探测后若支持本地则切到 local
         const localSupported = ref(false);
         const localUnsupportedReason = ref('');
+        const isMobile = ref(false);              // 移动端：默认 tiny + 大模型下载前内存警告
+        const deviceMemory = ref(null);           // GB（Chrome/Android 有，iOS 为 null）
 
         const selectedModel = ref('');
         const userModels = ref([]);               // [{model_name, has_ggml, is_published, ...}]
@@ -38,6 +40,17 @@ export default {
         let mediaRecorder = null;
         let audioChunks = [];
         let procTimer = null;
+
+        // --- 本地推理失败回退（P3-4）---
+        const lastBlob = ref(null);    // 最近一次捕获的音频，失败后回退/重试不必重录
+        const localError = ref(false); // 本地识别失败、正在引导用户回退服务端
+
+        // --- 录音电平表（P3-2）：实时告诉用户麦克风有没有收到声音 ---
+        const micLevel = ref(0);       // 0-100 输入电平（由 dBFS 映射）
+        const micActive = ref(false);  // 当前帧 RMS 是否达到「收到声音」阈值
+        // 与服务端 data_collector.MIN_AUDIO_RMS 一致：低于此值视为「几乎没声音」
+        const MIC_FLOOR = 0.002;
+        let meterCtx = null, meterSource = null, meterRAF = 0;
 
         // --- 终端 / 回放 ---
         const transcriptItems = ref([]);
@@ -71,6 +84,7 @@ export default {
             currentStatus.value = '等待输入音频...';
             statusType.value = 'system';
             copiedItemId.value = null;
+            localError.value = false;
         };
 
         // --- 模型列表 ---
@@ -84,8 +98,10 @@ export default {
             const all = new Set([...userModels.value.map((m) => m.model_name), ...baseModelOptions.value]);
             if (!all.size) { selectedModel.value = ''; return; }
             if (!selectedModel.value || !all.has(selectedModel.value)) {
-                selectedModel.value = baseModelOptions.value.includes('whisper-base')
-                    ? 'whisper-base'
+                // 手机内存有限，默认 tiny（最小）；桌面默认 base（质量更好）
+                const prefer = isMobile.value ? 'whisper-tiny' : 'whisper-base';
+                selectedModel.value = baseModelOptions.value.includes(prefer)
+                    ? prefer
                     : (baseModelOptions.value[0] || userModels.value[0]?.model_name || '');
             }
         };
@@ -137,6 +153,15 @@ export default {
         const cardInfo = computed(() => localInfoFor(selectedModel.value));
         const hasLocal = (name) => !!localInfoFor(name);   // 下拉里标注「无本地版」
 
+        // 手机上「可能因内存不足挂掉」的模型：已知 ≥120MB（small 基座）或大小未知的微调模型
+        const _looksLarge = (info) => {
+            if (!info) return false;
+            if (info.sizeMB != null) return info.sizeMB >= 120;
+            return info.kind === 'finetuned';
+        };
+        // 卡片上的移动端内存提醒（仅手机 + 选了大模型时显示）
+        const mobileMemWarn = computed(() => isMobile.value && _looksLarge(cardInfo.value));
+
         // 切模型 / 切到本地模式时，刷新卡片状态（已缓存的自动加载好，未缓存的等用户点下载）
         const refreshLocalState = async () => {
             if (mode.value !== 'local') return;
@@ -159,6 +184,17 @@ export default {
         const downloadModel = async () => {
             const info = localInfoFor(selectedModel.value);
             if (!info) return;
+            // 手机 + 大模型：下载前提醒内存风险，给「改用 tiny」的台阶
+            if (isMobile.value && _looksLarge(info)) {
+                const ok = await dialog.confirm(
+                    '手机内存有限，这个模型较大，加载时有可能因内存不足失败。建议改用更小的 tiny 模型。是否仍要下载？',
+                    { title: '📱 大模型内存提醒', confirmText: '仍要下载', cancelText: '改用 tiny', variant: 'warning' },
+                );
+                if (!ok) {
+                    if (baseModelOptions.value.includes('whisper-tiny')) selectedModel.value = 'whisper-tiny';
+                    return;
+                }
+            }
             localState.value = 'downloading';
             downloadPct.value = 0; downloadRecvMB.value = 0;
             try {
@@ -188,6 +224,7 @@ export default {
             if (m === 'local' && !localSupported.value) return;
             mode.value = m;
             usedModelType.value = '';
+            localError.value = false;
             if (m === 'local') await refreshLocalState();
         };
 
@@ -251,6 +288,13 @@ export default {
                 }
             } catch (e) {
                 await typeStatus(`❌ 本地识别失败: ${e.message}`, 'error');
+                localError.value = true;                 // 弹出回退横幅，引导用户切服务端
+                // 运行时崩溃（多为内存不足）：本页本地推理已不可用，灰掉本地、提示刷新
+                if (e.fatal || wasm.isRuntimeBroken()) {
+                    localSupported.value = false;
+                    localUnsupportedReason.value = '本地推理崩溃（可能内存不足），刷新页面可重试本地';
+                    localState.value = 'unavailable';
+                }
             } finally {
                 clearInterval(procTimer);
                 isProcessing.value = false;
@@ -258,7 +302,83 @@ export default {
             }
         };
 
-        const runInference = (blob) => (mode.value === 'local' ? runLocalInference(blob) : sendAudioToBackend(blob));
+        const runInference = (blob) => {
+            lastBlob.value = blob;                        // 记下来，失败后回退/重试不必重录
+            return mode.value === 'local' ? runLocalInference(blob) : sendAudioToBackend(blob);
+        };
+
+        // 本地失败后：用同一段音频改走服务端（不必重录）
+        const fallbackToServer = async () => {
+            if (!lastBlob.value || isProcessing.value) return;
+            localError.value = false;
+            mode.value = 'server';
+            await sendAudioToBackend(lastBlob.value);
+        };
+
+        // 本地失败后：用同一段音频重试本地（仅运行时未崩溃时可用）
+        const retryLocal = async () => {
+            if (!lastBlob.value || isProcessing.value) return;
+            localError.value = false;
+            await runLocalInference(lastBlob.value);
+        };
+
+        const dismissFallback = () => { localError.value = false; };
+
+        // --- 录音电平表（P3-2）---
+        // 在录音流上挂一个 AnalyserNode，逐帧算 RMS → dBFS → 0-100 电平，实时反馈。
+        // 不连到 destination，避免把麦克风原声回放出来造成啸叫。
+        const startMeter = (stream) => {
+            try {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                meterCtx = new AC();
+                if (meterCtx.state === 'suspended' && meterCtx.resume) meterCtx.resume();  // iOS：手势后需恢复
+                meterSource = meterCtx.createMediaStreamSource(stream);
+                const analyser = meterCtx.createAnalyser();
+                analyser.fftSize = 2048;
+                meterSource.connect(analyser);
+                const buf = new Float32Array(analyser.fftSize);
+                let smRms = 0;                     // EMA 平滑，避免按钮颜色在临界处乱闪
+                const tick = () => {
+                    analyser.getFloatTimeDomainData(buf);
+                    let sum = 0;
+                    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+                    const rms = Math.sqrt(sum / buf.length);
+                    smRms = smRms * 0.8 + rms * 0.2;
+                    // dBFS 映射：-60dB→0%，0dB→100%（正常说话 ~-30dB ≈ 50%）
+                    const dbfs = smRms > 0 ? 20 * Math.log10(smRms) : -Infinity;
+                    micLevel.value = Math.max(0, Math.min(100, Math.round(((dbfs + 60) / 60) * 100)));
+                    // 带回差的「收到声音」判定：开 0.002 / 关 0.0016，防止临界抖动
+                    micActive.value = micActive.value ? smRms >= MIC_FLOOR * 0.8 : smRms >= MIC_FLOOR;
+                    meterRAF = requestAnimationFrame(tick);
+                };
+                tick();
+            } catch (e) {
+                micLevel.value = 0; micActive.value = false;   // 电平表失败不影响录音本身
+            }
+        };
+
+        const stopMeter = () => {
+            if (meterRAF) { cancelAnimationFrame(meterRAF); meterRAF = 0; }
+            try { if (meterSource) meterSource.disconnect(); } catch (e) { /* 忽略 */ }
+            try { if (meterCtx && meterCtx.close) meterCtx.close(); } catch (e) { /* 忽略 */ }
+            meterSource = null; meterCtx = null;
+            micLevel.value = 0; micActive.value = false;
+        };
+
+        // 录音中把声音质量集成到「停止识别」按钮上：静音→黄 / 收音→绿 / 过载→红
+        const micQuality = computed(() => {
+            if (!isRecording.value) return 'idle';
+            if (micLevel.value > 80) return 'overload';
+            return micActive.value ? 'active' : 'silent';
+        });
+        const micHint = computed(() => (
+            { active: '🎤 正在收音', silent: '⚠ 没听到声音', overload: '🔊 声音过大' }[micQuality.value] || ''
+        ));
+        const recordBtnClass = computed(() => {
+            if (!isRecording.value) return 'bg-blue-500 text-white hover:bg-blue-600';
+            const tone = { active: 'bg-emerald-500', silent: 'bg-amber-500', overload: 'bg-red-500' }[micQuality.value] || 'bg-red-500';
+            return `${tone} text-white animate-pulse`;
+        });
 
         // 录音 / 上传是否可用：处理中不可；本地模式需模型 ready
         const canCapture = computed(() => {
@@ -272,6 +392,8 @@ export default {
             const cap = await wasm.detectCapabilities();
             localSupported.value = cap.ok;
             localUnsupportedReason.value = cap.reason;
+            isMobile.value = !!cap.isMobile;          // 先于 checkModelStatus，让默认模型选择能用上
+            deviceMemory.value = cap.deviceMemory;
             mode.value = cap.ok ? 'local' : 'server';
             await checkModelStatus();
         });
@@ -304,8 +426,9 @@ export default {
                     mediaRecorder = new MediaRecorder(stream);
                     audioChunks = [];
                     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
-                    mediaRecorder.onstop = () => { runInference(new Blob(audioChunks, { type: 'audio/wav' })); };
+                    mediaRecorder.onstop = () => { stopMeter(); runInference(new Blob(audioChunks, { type: 'audio/wav' })); };
                     mediaRecorder.start();
+                    startMeter(stream);            // 实时电平表
                     isRecording.value = true;
                 } catch (e) {
                     dialog.alert('无法访问麦克风，请检查权限！', { variant: 'danger' });
@@ -330,6 +453,9 @@ export default {
             isRecording, isProcessing, processingElapsed, canCapture, audioInput,
             transcriptItems, historyContainer, currentStatus, statusType, copiedItemId,
             usedModelType, tempAudioPath,
+            localError, fallbackToServer, retryLocal, dismissFallback,
+            micHint, recordBtnClass,
+            isMobile, mobileMemWarn,
             handleFileUpload, toggleRecording, copyTranscript,
         };
     },

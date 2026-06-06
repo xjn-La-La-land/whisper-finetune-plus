@@ -472,6 +472,13 @@ async def api_recognition(
     audio: UploadFile = File(...),
     current_user: str = Depends(get_current_user),
 ):
+    """服务端 GPU 推理 —— 现已是**降级路径**，不再是默认。
+
+    默认推理在用户浏览器里用 whisper.cpp WASM 本地跑（见 static/js/wasm_whisper.js +
+    inference_panel.js），音频不离开本机、也不占服务端 GPU，多用户可并发识别。只有当
+    浏览器不支持本地推理（旧浏览器 / 页面未跨源隔离 / 该模型无 ggml 版）时，前端才回落到
+    本接口。本接口仍受 GPU_LOCK 约束（与训练互斥），与新增的 WASM 路径互不影响。
+    """
     username = current_user
     # 1. 解析目标模型路径（无需 GPU 锁，纯查表）
     user_models = await resolve_user_model_path(username)

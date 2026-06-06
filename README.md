@@ -17,7 +17,8 @@
    - GPU 正在微调或评估时，拒绝推理请求；
    - GPU 空闲或正在推理时，检查显存中加载的是谁的模型：是当前用户则直接复用；否则**清空显存**，加载该用户的微调模型（若无微调模型则加载 Base 模型）。
 3. **可视化模型微调**：Web 端一键启动并实时监控微调（Loss 曲线实时绘制、微调后可在测试集上评估字错率）。
-4. **端侧部署**：微调后可导出 tflite，配合安卓 IME app 离线使用（见下方文档导航）。
+4. **浏览器端本地推理（默认推理路径）**：识别默认在用户浏览器里用 whisper.cpp 的 WASM 跑——音频不离开本机（隐私更好），且**不占用服务端 GPU**，多用户可并发识别。模型（基座或微调）导出为 ggml q5_0 量化版后由前端下载并缓存在 IndexedDB（见「快速开始」第 4b 步）。浏览器不支持时（旧浏览器 / 页面未跨源隔离 / 该模型无 ggml 版）自动降级到服务端 GPU 推理（`/api/recognition`，受第 2 点的 GPU 状态管理约束）。
+5. **端侧部署**：微调后可导出 tflite，配合安卓 IME app 离线使用（见下方文档导航）。
 
 ## 项目结构
 
@@ -80,13 +81,10 @@ pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu1
 # 3. 下载基座模型到 ./whisper-base-models（默认 ModelScope 源，境内直连免代理）
 python download_whisper_models.py whisper-small
 
-# 4.（仅「会导出 / 量化模型」的 GPU 机需要）编译 whisper.cpp native 二进制
-#    供 ggml_export.py 的 q5_0 量化用；浏览器端 WASM 产物已随仓库提交(static/wasm/)，
-#    无需重编。（升级 whisper.cpp 版本想重编 WASM 时再装 emsdk，见 TODO_WHISPER_CPP_WASM.md）
+# 4. 编译 whisper.cpp native 二进制
 scripts/build_whisper_cpp.sh --native-only
 
-# 4b.（可选，让"没微调过的用户"也能用浏览器 WASM 推理）把基座转成 ggml
-#     产物落到 whisper-base-models/ggml/（不入库，部署时生成）。依赖第 4 步的 whisper-quantize。
+# 4b.（可选）转换基座模型的 ggml
 python ggml_export.py --base-models        # 默认 tiny/base/small（medium 太大、浏览器跑不动）
 
 # 5. 启动后端

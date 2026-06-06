@@ -122,9 +122,33 @@ cloudflared tunnel --protocol http2 --no-autoupdate run
 
 ---
 
+## ③ 浏览器端 WASM 本地推理（COOP/COEP 透传，**上线必查**）
+
+本平台**默认**在用户浏览器里用 whisper.cpp 的 WASM 做识别（音频不离开本机、不占服务端 GPU、多用户可并发）。浏览器不支持时才回落到服务端 `/api/recognition`（受 GPU 锁约束）。要让多线程 WASM 跑起来，页面必须处于「跨源隔离」(`crossOriginIsolated === true`) 状态，这依赖两个响应头：
+
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: require-corp`
+
+这两个头由后端 `main.py` 的全局中间件统一加上。**风险点：反向代理 / 隧道有可能把它们剥掉。** 本平台走 Cloudflare 具名隧道，需实测确认它**原样透传**这两个头——否则 `crossOriginIsolated` 会是 `false`，前端能力探测判失败，**所有用户被迫回落服务端 GPU、WASM 方案在线上等于没上。**
+
+**验证（浏览器开 https://app.carespeechai.cn，F12 控制台敲一行）：**
+
+```js
+crossOriginIsolated            // 必须为 true
+```
+
+- `true` → 透传正常。再到识别页确认「推理方式」默认停在「⚡ 本地浏览器」、选个模型下载后能识别出字即可。
+- `false` → 头被剥了。排查：① 后端直连确认头在 —— `curl -I http://127.0.0.1:8000/ | grep -i cross-origin` 应看到 COOP/COEP 两行；② 若后端有、线上没有，就是隧道/边缘剥掉了。退路见 `TODO_WHISPER_CPP_WASM.md` 风险登记：客户端 `coi-serviceworker` 注入，或改用单线程 WASM 兜底（性能 -30%）。
+
+> **模型来源**：WASM 产物（`static/wasm/`）已随仓库提交，服务机**无需装 emsdk / 重编**。但「没微调过的用户也能本地识别」需要基座的 ggml 量化版——在能跑 `whisper-quantize` 的机器上执行 `python ggml_export.py --base-models`（根 README 第 4 / 4b 步）；微调模型的 ggml 在训练成功后自动导出。
+> 纯采集机（`COLLECT_ONLY=1`）不做识别，本节不适用（COOP/COEP 头仍会带上，无副作用）。
+
+---
+
 ## 验证
 
 浏览器打开 **https://app.carespeechai.cn**：能登录、采集页能录音、识别出字、微调 Loss 曲线实时刷新 → 上线成功。
+**本地 WASM 推理是否可用见上节「③」**（控制台 `crossOriginIsolated` 应为 `true`）。
 
 排查命令：
 

@@ -47,13 +47,29 @@ async function _wasmSimdOk() {
     return _simdCache;
 }
 
-// 返回 { ok, reason, ... }。ok=false 时 reason 是给用户看的中文说明。
+// 是否移动端（用于内存保守策略：默认 tiny、大模型下载前警告）
+function _detectMobile() {
+    try {
+        if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
+            return navigator.userAgentData.mobile;
+        }
+    } catch (e) { /* 忽略 */ }
+    const ua = navigator.userAgent || '';
+    // iPadOS 13+ 默认伪装成 Mac（UA 里是 Macintosh），靠多点触控补判
+    const iPadOS = /Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+    return /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua) || iPadOS;
+}
+
+// 返回 { ok, reason, isMobile, deviceMemory, ... }。ok=false 时 reason 是给用户看的中文说明。
 export async function detectCapabilities() {
     const hasWasm = typeof WebAssembly !== 'undefined';
     const hasIDB = 'indexedDB' in window;
     const isolated = (typeof crossOriginIsolated !== 'undefined') ? crossOriginIsolated : false;
     const hasSAB = typeof SharedArrayBuffer !== 'undefined';
     const simd = hasWasm ? await _wasmSimdOk() : false;
+    const isMobile = _detectMobile();
+    // navigator.deviceMemory：Chrome/Android 给（单位 GB，封顶 8）；iOS Safari 不支持 → null
+    const deviceMemory = (typeof navigator.deviceMemory === 'number') ? navigator.deviceMemory : null;
 
     let ok = true;
     let reason = '';
@@ -64,7 +80,11 @@ export async function detectCapabilities() {
         ok = false;
         reason = '页面未跨源隔离（缺 SharedArrayBuffer）——多线程 WASM 不可用';
     }
-    return { ok, reason, hasWasm, simd, hasIDB, crossOriginIsolated: isolated, hasSharedArrayBuffer: hasSAB };
+    return {
+        ok, reason, hasWasm, simd, hasIDB,
+        crossOriginIsolated: isolated, hasSharedArrayBuffer: hasSAB,
+        isMobile, deviceMemory,
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,12 +151,36 @@ async function _fetchModelBytes(url, onProgress, fetcher) {
 // ---------------------------------------------------------------------------
 let _runtimePromise = null;
 let _lineListener = null;          // 当前 transcribe 的 print 行回调
+let _aborted = false;              // 运行时是否已崩溃（OOM/abort）；崩溃后本页内本地推理不可再用
+let _activeReject = null;          // 当前 transcribe 的 reject，供 onAbort 途中崩溃时立即失败
 
 function _onLine(text) {
     if (_lineListener) {
         try { _lineListener(text); } catch (e) { /* 忽略单行处理异常 */ }
     }
 }
+
+// 标记为致命错误（运行时崩溃/不可恢复），调用方据此引导用户回退服务端而非简单重试
+function _fatalError(msg) {
+    const e = new Error(msg);
+    e.fatal = true;
+    return e;
+}
+
+// 运行时崩溃（OOM/abort）：置不可用标志、放掉互斥、让在飞的 transcribe 立刻失败（不等超时）
+function _markAborted(msg) {
+    _aborted = true;
+    _instance = null;
+    _loadedKey = null;
+    _busy = false;
+    _lineListener = null;
+    const rej = _activeReject;
+    _activeReject = null;
+    if (rej) rej(_fatalError(msg));
+}
+
+// 运行时是否已崩溃（本页内不可恢复，需刷新）。前端据此灰掉本地、引导回退/刷新。
+export function isRuntimeBroken() { return _aborted; }
 
 export function ensureRuntime() {
     if (_runtimePromise) return _runtimePromise;
@@ -148,7 +192,11 @@ export function ensureRuntime() {
             printErr: _onLine,         // whisper 的 timings/段落可能走 stderr，一并收
             locateFile: (path) => WASM_DIR + path,   // libmain.wasm 等都在 /static/wasm/
             onRuntimeInitialized: () => resolve(window.Module),
-            onAbort: (what) => reject(new Error('WASM 运行时中止: ' + what)),
+            onAbort: (what) => {
+                const msg = 'WASM 运行时已崩溃（多为内存不足）: ' + what;
+                _markAborted(msg);       // 让在飞的识别立刻失败 + 标记本页本地不可用
+                reject(_fatalError(msg)); // 同时让 ensureRuntime 的 promise 失败
+            },
         };
         const s = document.createElement('script');
         s.src = WASM_DIR + 'libmain.js';
@@ -180,6 +228,7 @@ export function getLoadedKey() { return _loadedKey; }
 //   onProgress(received, total|null): 仅在真正下载（缓存未命中）时回调
 // 返回 { fromCache: boolean }
 export async function ensureModel({ cacheKey, url, onProgress, fetcher }) {
+    if (_aborted) throw _fatalError('WASM 运行时已崩溃，请刷新页面后重试本地');
     await ensureRuntime();
     if (_loadedKey === cacheKey && _instance != null) return { fromCache: true };
     if (_busy) throw new Error('正在识别中，无法切换模型');
@@ -244,14 +293,27 @@ function _nthreads() {
 // transcribe(pcmF32, lang) → Promise<{ segments:[{start,end,text}], text }>
 // onSegment(seg) 可选：每解析到一段就回调（用于边出边显示）。
 export function transcribe(pcm, lang = 'zh', { onSegment } = {}) {
+    if (_aborted) return Promise.reject(_fatalError('WASM 运行时已崩溃，请刷新页面后重试本地'));
     if (_instance == null) return Promise.reject(new Error('模型未加载'));
     if (_busy) return Promise.reject(new Error('上一次识别还在进行'));
     _busy = true;
 
     const segments = [];
     return new Promise((resolve, reject) => {
-        let timer = setTimeout(() => { cleanup(); reject(new Error('识别超时')); }, TRANSCRIBE_TIMEOUT_MS);
-        function cleanup() { clearTimeout(timer); _lineListener = null; _busy = false; }
+        let done = false;
+        const timer = setTimeout(() => finish(() => reject(new Error('识别超时'))), TRANSCRIBE_TIMEOUT_MS);
+        // 所有结束路径（完成 / 超时 / 异常 / 运行时崩溃）都汇到这里：保证只触发一次、状态清干净
+        function finish(action) {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            _lineListener = null;
+            _activeReject = null;
+            _busy = false;
+            action();
+        }
+        // 注册给 onAbort：途中 OOM/崩溃时立即失败，不必干等到超时
+        _activeReject = (err) => finish(() => reject(err));
 
         _lineListener = (line) => {
             const m = line.match(SEG_RE);
@@ -261,8 +323,7 @@ export function transcribe(pcm, lang = 'zh', { onSegment } = {}) {
                 return;
             }
             if (DONE_RE.test(line)) {
-                cleanup();
-                resolve({ segments, text: segments.map((s) => s.text).join('') });
+                finish(() => resolve({ segments, text: segments.map((s) => s.text).join('') }));
             }
         };
 
@@ -271,11 +332,10 @@ export function transcribe(pcm, lang = 'zh', { onSegment } = {}) {
         try {
             ret = window.Module.full_default(_instance, pcm, lang, _nthreads(), false);
         } catch (e) {
-            cleanup();
-            reject(e);
+            finish(() => reject(e));
             return;
         }
-        if (ret !== 0) { cleanup(); reject(new Error('full_default 返回 ' + ret)); }
+        if (ret !== 0) finish(() => reject(new Error('full_default 返回 ' + ret)));
     });
 }
 
