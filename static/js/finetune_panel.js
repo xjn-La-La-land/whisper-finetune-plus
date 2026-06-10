@@ -1,6 +1,7 @@
 const { ref, onMounted, onUnmounted, onActivated, nextTick, watch } = Vue;
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch, sseUrl } from './api.js?v=1.2';
+import { friendlyHttpError, friendlyNetworkError } from './errors.js?v=1';
 
 export default {
     template: '#tpl-finetune-panel',
@@ -12,6 +13,7 @@ export default {
         const buildResult = ref(null);
         
         const isTraining = ref(false);
+        const isStopping = ref(false);
         const hasChartData = ref(false); // 控制图表和占位符的切换
         const chartError = ref("");
         const showAdvanced = ref(false);   // 高级参数默认收起：家长保持默认即可，工程师可展开
@@ -133,6 +135,7 @@ export default {
         const chartRef = ref(null);
         let myChart = null;
         let eventSource = null;
+        let sseErrorNotified = false;   // 避免 EventSource 自动重连时反复弹「连接中断」
         let trainLossData = [];
         let evalLossData = [];
 
@@ -560,6 +563,7 @@ export default {
             hasChartData.value = trainLossData.length > 0 || evalLossData.length > 0;
 
             // sseUrl() 自动把 JWT token 拼到 query（EventSource 不支持自定义 header）
+            sseErrorNotified = false;
             eventSource = new EventSource(sseUrl('/api/train_stream', { model_name: modelName }));
 
             eventSource.onmessage = (event) => {
@@ -568,6 +572,17 @@ export default {
                     data = JSON.parse(event.data);
                 } catch (err) {
                     console.warn("[SSE] JSON parse failed:", event.data);
+                    return;
+                }
+
+                sseErrorNotified = false;
+
+                if (data.status === 'stopped') {
+                    isTraining.value = false;
+                    eventSource.close();
+                    eventSource = null;
+                    dialog.alert('训练已停止，本次进度未保存为可用模型。', { variant: 'info', title: '已停止' });
+                    loadUserModels();
                     return;
                 }
 
@@ -615,6 +630,14 @@ export default {
 
             eventSource.onerror = (err) => {
                 console.error("[SSE] error =", err);
+                // 正常 finished/stopped 已先 close()；仅当我们仍认为在训练且尚未提示过时，提醒一次
+                if (isTraining.value && !sseErrorNotified) {
+                    sseErrorNotified = true;
+                    dialog.alert(
+                        friendlyNetworkError() + '\n训练可能仍在后台继续，可稍后切到别的标签页再返回以重新连接查看进度。',
+                        { variant: 'warning', title: '连接中断' }
+                    );
+                }
             };
         };
 
@@ -642,7 +665,7 @@ export default {
                     buildResult.value = { success: false, message: data.detail || "生成失败，请检查是否有已录音的任务。" };
                 }
             } catch (err) {
-                buildResult.value = { success: false, message: "网络请求失败，请检查后端服务。" };
+                buildResult.value = { success: false, message: friendlyNetworkError() };
             } finally {
                 isBuilding.value = false;
             }
@@ -705,13 +728,34 @@ export default {
                         modelName: finetuneParams.value.model_name.trim()
                     });
                 } else {
-                    const errorData = await res.json();
-                    dialog.alert(`启动失败：${errorData.detail}`, { variant: 'danger' });
+                    const msg = await friendlyHttpError(res, '启动失败，请稍后重试。');
+                    if (msg) dialog.alert(msg, { variant: 'danger' });
                     isTraining.value = false;
                 }
             } catch (err) {
-                dialog.alert("网络请求失败，无法启动训练！", { variant: 'danger' });
+                dialog.alert(friendlyNetworkError(), { variant: 'danger' });
                 isTraining.value = false;
+            }
+        };
+
+        // --- 动作：停止当前训练 ---
+        const handleStopFinetune = async () => {
+            if (!isTraining.value || isStopping.value) return;
+            const ok = await dialog.confirm(
+                '确定要停止当前训练吗？已训练的进度不会保存为可用模型。',
+                { variant: 'danger', title: '停止训练', confirmText: '停止训练', cancelText: '继续训练' }
+            );
+            if (!ok) return;
+            isStopping.value = true;
+            try {
+                const res = await apiFetch('/api/stop_finetune', { method: 'POST' });
+                if (!res.ok) throw new Error(await friendlyHttpError(res));
+                // 不在这里翻 isTraining —— 交给 SSE 的 stopped 帧统一处理（单一真相源）
+            } catch (e) {
+                const msg = (e instanceof TypeError) ? friendlyNetworkError() : e.message;
+                if (msg) dialog.alert(msg, { variant: 'danger' });
+            } finally {
+                isStopping.value = false;
             }
         };
 
@@ -916,6 +960,8 @@ export default {
             handleBuildDataset,
             handleDownloadBaseModel,
             handleStartFinetune,
+            isStopping,
+            handleStopFinetune,
             enforceMinLen,
             enforceMaxLen,
             showPublishModal,
