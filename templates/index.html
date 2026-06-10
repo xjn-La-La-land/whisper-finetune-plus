@@ -594,7 +594,7 @@
                             <div class="bg-gradient-to-r from-green-400 to-green-500 h-2.5 rounded-full transition-all duration-500 ease-out" :style="{ width: progressPercentage + '%' }"></div>
                         </div>
                     </div>
-                    <button v-if="tasks.length > 0" @click="clearAllTasks" class="flex-shrink-0 text-red-500 hover:text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-xl text-sm font-bold transition flex items-center gap-1.5 border border-transparent hover:border-red-100 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>清空全部</button>
+                    <button v-if="tasks.length > 0" @click="clearAllTasks" :disabled="clearing" class="flex-shrink-0 text-red-500 hover:text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-xl text-sm font-bold transition flex items-center gap-1.5 border border-transparent hover:border-red-100 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>清空全部</button>
                 </div>
                 <div class="bg-white/90 p-3 rounded-2xl shadow-sm border border-white flex flex-col md:flex-row gap-4 justify-between items-center">
                     <div class="flex items-center gap-2 w-full md:w-auto">
@@ -609,11 +609,19 @@
                             </div>
                         </div>
 
-                        <button @click="uploadTxt" class="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold transition whitespace-nowrap ml-1 shadow-sm flex items-center gap-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>导入</button>
+                        <button @click="uploadTxt" :disabled="busyImport" class="bg-blue-500 hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl font-bold transition whitespace-nowrap ml-1 shadow-sm flex items-center gap-1.5">
+                            <svg v-if="busyImport" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            {{ busyImport ? '导入中…' : '导入' }}
+                        </button>
                     </div>
                     <div class="flex items-center gap-2 w-full md:w-auto">
                         <input v-model="newTaskText" type="text" placeholder="手动输入一句文本..." class="flex-1 md:w-64 border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white transition" @keyup.enter="addTask" />
-                        <button @click="addTask" class="bg-green-500 hover:bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold transition whitespace-nowrap shadow-sm flex items-center gap-1.5"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>添加</button>
+                        <button @click="addTask" :disabled="busyAdd" class="bg-green-500 hover:bg-green-600 disabled:opacity-60 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl font-bold transition whitespace-nowrap shadow-sm flex items-center gap-1.5">
+                            <svg v-if="busyAdd" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                            {{ busyAdd ? '添加中…' : '添加' }}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -626,7 +634,7 @@
                         <div class="flex-1">
                             <div v-if="editingTaskId === task.id" class="flex gap-2 w-full" @click.stop>
                                 <input v-model="editingTaskText" type="text" class="flex-1 border-b-2 border-blue-400 focus:outline-none px-1 text-lg font-medium text-gray-800 bg-blue-50/50 rounded-t" @keyup.enter="saveEdit(task.id)" />
-                                <button @click="saveEdit(task.id)" class="text-green-600 font-bold hover:bg-green-100 px-3 py-1 rounded transition whitespace-nowrap">保存</button>
+                                <button @click="saveEdit(task.id)" :disabled="savingTaskId === task.id" class="text-green-600 font-bold hover:bg-green-100 px-3 py-1 rounded transition whitespace-nowrap disabled:opacity-60">{{ savingTaskId === task.id ? '保存中…' : '保存' }}</button>
                                 <button @click="cancelEdit" class="text-gray-400 font-bold hover:bg-gray-100 px-3 py-1 rounded transition whitespace-nowrap">取消</button>
                             </div>
                             <p v-else class="text-lg font-medium text-gray-700 leading-snug">{{ task.text_content }}</p>
@@ -635,7 +643,7 @@
 
                     <div v-if="editingTaskId !== task.id" class="absolute top-4 right-4 md:static md:opacity-0 md:group-hover:opacity-100 transition-opacity flex gap-2" @click.stop>
                         <button @click="startEditing(task)" title="修改" class="text-gray-400 hover:text-blue-500 p-1.5 rounded-lg hover:bg-blue-50 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button>
-                        <button @click="deleteTask(task.id)" title="删除" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                        <button @click="deleteTask(task.id)" :disabled="deletingTaskId === task.id" title="删除" class="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                     </div>
                     
                     <div class="flex items-center gap-3 w-full md:w-auto justify-end mt-2 md:mt-0 p-2 md:p-0 rounded-xl" @click.stop>
@@ -1302,7 +1310,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=2.6"></script>
+    <script type="module" src="/static/js/app.js?v=2.7"></script>
     <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>

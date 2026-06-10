@@ -1,6 +1,7 @@
 const { ref, computed, onMounted, onUnmounted, nextTick } = Vue;
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch, sseUrl } from './api.js?v=1.2';
+import { friendlyHttpError, friendlyNetworkError } from './errors.js?v=1';
 
 export default {
     template: '#tpl-audio-collector',
@@ -15,7 +16,14 @@ export default {
         const editingTaskText = ref("");
         const recordingTaskId = ref(null);
         const processingTaskId = ref(null);
-        
+
+        // --- 写操作 in-flight 态（防重复点击 + 按钮 spinner/禁用）---
+        const busyImport = ref(false);
+        const busyAdd = ref(false);
+        const savingTaskId = ref(null);
+        const deletingTaskId = ref(null);
+        const clearing = ref(false);
+
         let mediaRecorder = null;
         let audioChunks = [];
 
@@ -42,22 +50,45 @@ export default {
         const uploadTxt = async () => {
             const file = txtInput.value.files[0];
             if (!file) return dialog.alert("请先选择一个 TXT 文件！", { variant: 'warning' });
+            if (busyImport.value) return;
+            busyImport.value = true;
             const formData = new FormData();
             formData.append("file", file);
-            await apiFetch('/api/upload_txt', { method: 'POST', body: formData });
-            txtInput.value.value = "";
-            fetchTasks();
+            try {
+                const res = await apiFetch('/api/upload_txt', { method: 'POST', body: formData });
+                if (!res.ok) throw new Error(await friendlyHttpError(res));
+                const data = await res.json().catch(() => ({}));
+                txtInput.value.value = "";            // 成功后才清空文件选择
+                if (data.message) dialog.alert(data.message, { variant: 'success' });
+            } catch (e) {
+                const msg = (e instanceof TypeError) ? friendlyNetworkError() : e.message;
+                if (msg) dialog.alert(msg, { variant: 'danger' });
+            } finally {
+                busyImport.value = false;
+                await fetchTasks();
+            }
         };
 
         const addTask = async () => {
-            if (!newTaskText.value.trim()) return;
-            await apiFetch('/api/task', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: newTaskText.value })
-            });
-            newTaskText.value = "";
-            fetchTasks();
+            const text = newTaskText.value.trim();
+            if (!text) return;
+            if (busyAdd.value) return;
+            busyAdd.value = true;
+            try {
+                const res = await apiFetch('/api/task', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (!res.ok) throw new Error(await friendlyHttpError(res));
+                newTaskText.value = "";               // 成功后才清空输入，失败保留用户已打的字
+            } catch (e) {
+                const msg = (e instanceof TypeError) ? friendlyNetworkError() : e.message;
+                if (msg) dialog.alert(msg, { variant: 'danger' });
+            } finally {
+                busyAdd.value = false;
+                await fetchTasks();
+            }
         };
 
         const startEditing = (task) => { editingTaskId.value = task.id; editingTaskText.value = task.text_content; };
@@ -79,13 +110,23 @@ export default {
                 if (!ok) return;
             }
 
-            await apiFetch(`/api/task/${taskId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: newText })
-            });
-            editingTaskId.value = null;
-            fetchTasks();
+            if (savingTaskId.value) return;
+            savingTaskId.value = taskId;
+            try {
+                const res = await apiFetch(`/api/task/${taskId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: newText })
+                });
+                if (!res.ok) throw new Error(await friendlyHttpError(res));
+                editingTaskId.value = null;           // 成功后才关闭编辑框
+            } catch (e) {
+                const msg = (e instanceof TypeError) ? friendlyNetworkError() : e.message;
+                if (msg) dialog.alert(msg, { variant: 'danger' });
+            } finally {
+                savingTaskId.value = null;
+                await fetchTasks();
+            }
         };
 
         const deleteTask = async (taskId) => {
@@ -94,8 +135,18 @@ export default {
                 { variant: 'danger', confirmText: '删除', cancelText: '取消' }
             );
             if (!ok) return;
-            await apiFetch(`/api/task/${taskId}`, { method: 'DELETE' });
-            fetchTasks();
+            if (deletingTaskId.value) return;
+            deletingTaskId.value = taskId;
+            try {
+                const res = await apiFetch(`/api/task/${taskId}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error(await friendlyHttpError(res));
+            } catch (e) {
+                const msg = (e instanceof TypeError) ? friendlyNetworkError() : e.message;
+                if (msg) dialog.alert(msg, { variant: 'danger' });
+            } finally {
+                deletingTaskId.value = null;
+                await fetchTasks();
+            }
         };
 
         const clearAllTasks = async () => {
@@ -104,8 +155,18 @@ export default {
                 { variant: 'danger', confirmText: '全部清空', cancelText: '取消' }
             );
             if (!ok) return;
-            await apiFetch('/api/tasks', { method: 'DELETE' });
-            fetchTasks();
+            if (clearing.value) return;
+            clearing.value = true;
+            try {
+                const res = await apiFetch('/api/tasks', { method: 'DELETE' });
+                if (!res.ok) throw new Error(await friendlyHttpError(res));
+            } catch (e) {
+                const msg = (e instanceof TypeError) ? friendlyNetworkError() : e.message;
+                if (msg) dialog.alert(msg, { variant: 'danger' });
+            } finally {
+                clearing.value = false;
+                await fetchTasks();
+            }
         };
 
         // --- 录音逻辑 ---
@@ -197,6 +258,7 @@ export default {
 
         return {
             tasks, txtInput, uploadTxt, startRecording, stopRecording, recordingTaskId, processingTaskId,
+            busyImport, busyAdd, savingTaskId, deletingTaskId, clearing,
             newTaskText, addTask, editingTaskId, editingTaskText, startEditing, saveEdit, cancelEdit, deleteTask, clearAllTasks,
             completedCount, progressPercentage,
             focusedTaskIndex, focusedTask, openFocusMode, closeFocusMode, prevFocusTask, nextFocusTask,
