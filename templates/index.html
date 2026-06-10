@@ -784,7 +784,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div class="col-span-1 md:col-span-2 bg-indigo-50/60 p-5 rounded-2xl border border-indigo-100">
                         <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
-                            <span>模型名称 <span class="text-gray-400 font-normal">(显示在推理下拉列表)</span></span>
+                            <span>模型名称 <span class="text-gray-400 font-normal">给这个专属模型起个名字</span></span>
                         </label>
                         <div class="flex flex-col gap-3">
                             <input v-model.trim="finetuneParams.model_name"
@@ -873,8 +873,19 @@
                             <input type="range" min="1" max="100" step="1" v-model.number="finetuneParams.epochs" class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
                             <input type="number" min="1" max="100" step="1" v-model.number="finetuneParams.epochs" class="w-20 px-3 py-1.5 border border-gray-200 rounded-xl text-center focus:outline-none focus:border-blue-400 font-bold text-gray-700">
                         </div>
-                        <p class="text-[11px] text-gray-400 mt-1.5">让 AI 把全部录音反复听多少遍。默认 20 遍。</p>
+                        <p class="text-[11px] text-gray-400 mt-1.5">AI 要把录音反复听多少遍，越多学得越细但越久。默认 20。</p>
                     </div>
+
+                    <!-- 高级设置披露开关：默认收起；展开后是原全部进阶参数 -->
+                    <div class="col-span-1 md:col-span-2">
+                        <button type="button" @click="showAdvanced = !showAdvanced"
+                                class="inline-flex items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-700 transition">
+                            <span>⚙️ 高级设置（可选，保持默认即可）</span>
+                            <svg class="w-4 h-4 transition-transform" :class="showAdvanced ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                    </div>
+                    <div v-show="showAdvanced" class="col-span-1 md:col-span-2">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
 
                     <div>
                         <label class="flex items-center justify-between text-sm font-bold text-gray-600 mb-3">
@@ -928,6 +939,7 @@
                             </div>
                             <input type="checkbox" v-model="finetuneParams.fp16" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
                         </label>
+                        <p class="text-[11px] text-gray-400 mt-1">🧠 AdaLora 动态分配学习容量、📦 8-bit 省显存、⚡ FP16 半精度加速——通常保持默认即可。</p>
                     </div>
 
                     <div class="col-span-1 md:col-span-2 bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
@@ -962,6 +974,8 @@
                         </div>
                         
                         <p class="text-[12px] text-gray-400">💡 太短可能是误触噪音，太长可能会导致显存不够。建议保持在 0.5 ~ 30 秒之间。</p>
+                    </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1310,7 +1324,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=2.8"></script>
+    <script type="module" src="/static/js/app.js?v=2.9"></script>
     <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>

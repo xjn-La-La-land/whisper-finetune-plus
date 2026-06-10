@@ -2,7 +2,7 @@ const { createApp, ref, onMounted, watchEffect, nextTick } = Vue;
 
 import CustomAudio from './custom_audio.js?v=1.2';
 import AudioCollector from './audio_collector.js?v=1.3';
-import FinetunePanel from './finetune_panel.js?v=1.7';
+import FinetunePanel from './finetune_panel.js?v=1.8';
 import InferencePanel from './inference_panel.js?v=1.13';
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch, setToken, clearToken, getToken, getStoredUsername } from './api.js?v=1.2';

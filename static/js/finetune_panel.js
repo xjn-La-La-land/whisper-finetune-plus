@@ -14,6 +14,7 @@ export default {
         const isTraining = ref(false);
         const hasChartData = ref(false); // 控制图表和占位符的切换
         const chartError = ref("");
+        const showAdvanced = ref(false);   // 高级参数默认收起：家长保持默认即可，工程师可展开
         const baseModelOptions = ref([]);
         const allBaseModels = ref([]);
         const baseModelError = ref("");
@@ -904,6 +905,7 @@ export default {
             isTraining,
             hasChartData,
             chartError,
+            showAdvanced,
             baseModelOptions,
             allBaseModels,
             baseModelError,
