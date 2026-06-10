@@ -237,8 +237,11 @@ export default {
                 lastFocusedBeforeFocus = document.activeElement;
                 await nextTick();
                 const el = focusModeRoot.value;
-                const btn = el && el.querySelector('button');
-                if (btn) btn.focus();
+                if (el) {
+                    const target = el.querySelector('[data-focus-initial]:not([disabled])')
+                        || el.querySelector('button:not([disabled]), [href], input, select, textarea');
+                    if (target) target.focus();
+                }
             } else if (idx === null && prev !== null) {
                 if (lastFocusedBeforeFocus && lastFocusedBeforeFocus.focus) lastFocusedBeforeFocus.focus();
                 lastFocusedBeforeFocus = null;
