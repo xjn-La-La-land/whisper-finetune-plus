@@ -1,7 +1,7 @@
-const { createApp, ref, onMounted, watchEffect, nextTick } = Vue;
+const { createApp, ref, onMounted, watchEffect, nextTick, watch } = Vue;
 
 import CustomAudio from './custom_audio.js?v=1.2';
-import AudioCollector from './audio_collector.js?v=1.3';
+import AudioCollector from './audio_collector.js?v=1.4';
 import FinetunePanel from './finetune_panel.js?v=1.8';
 import InferencePanel from './inference_panel.js?v=1.13';
 import * as dialog from './dialog.js?v=1.2';
@@ -14,6 +14,24 @@ const app = createApp({
         const currentUser = ref("");
         const loginInput = ref("");
         const passwordInput = ref("");
+        // --- 弹窗焦点管理（无障碍：键盘/运动障碍用户）---
+        const dialogRoot = ref(null);          // 绑定到弹窗卡片
+        let lastFocusedBeforeDialog = null;
+        watch(() => dialog.dialogState.visible, async (visible) => {
+            if (visible) {
+                lastFocusedBeforeDialog = document.activeElement;
+                await nextTick();
+                const el = dialogRoot.value;
+                if (el) {
+                    const target = el.querySelector('[data-dialog-confirm]')
+                        || el.querySelector('button, input, select, textarea, [href]');
+                    if (target) target.focus();
+                }
+            } else if (lastFocusedBeforeDialog && lastFocusedBeforeDialog.focus) {
+                lastFocusedBeforeDialog.focus();
+                lastFocusedBeforeDialog = null;
+            }
+        });
         const isCollectOnly = ref(false);
         const hasGpu = ref(false);   // 本机是否有可用 GPU（来自 /api/config，控制「微调」能否启动）
 
@@ -166,7 +184,7 @@ const app = createApp({
                 }
             });
 
-            // 全局键盘支持：dialog 显示时 Enter 确认 / Esc 取消
+            // 全局键盘支持：dialog 显示时 Enter 确认 / Esc 取消 / Tab 在弹窗内循环
             window.addEventListener('keydown', (e) => {
                 if (!dialog.dialogState.visible) return;
                 if (e.key === 'Enter') {
@@ -175,6 +193,15 @@ const app = createApp({
                 } else if (e.key === 'Escape') {
                     e.preventDefault();
                     dialog.handleCancel();
+                } else if (e.key === 'Tab') {
+                    const el = dialogRoot.value;
+                    if (!el) return;
+                    const f = Array.from(el.querySelectorAll('button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])'))
+                        .filter(n => !n.disabled && n.offsetParent !== null);
+                    if (!f.length) return;
+                    const first = f[0], last = f[f.length - 1];
+                    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
                 }
             });
         });
@@ -192,6 +219,7 @@ const app = createApp({
             changeTab,
             handleAuth,
             handleLogout,
+            dialogRoot,
             dialogState: dialog.dialogState,
             dialogConfirm: dialog.handleConfirm,
             dialogCancel: dialog.handleCancel

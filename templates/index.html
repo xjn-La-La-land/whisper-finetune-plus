@@ -417,7 +417,8 @@
                     enter-to-class="opacity-100 scale-100"
                     appear
                 >
-                    <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
+                    <div ref="dialogRoot" role="dialog" aria-modal="true" :aria-label="dialogState.title"
+                         class="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
                         <!-- 顶部状态条按 variant 着色 -->
                         <div class="h-2"
                              :class="{
@@ -455,7 +456,7 @@
                                         class="flex-1 px-6 py-4 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-base transition active:scale-95">
                                     {{ dialogState.cancelText }}
                                 </button>
-                                <button @click="dialogConfirm"
+                                <button @click="dialogConfirm" data-dialog-confirm
                                         class="flex-1 px-6 py-4 rounded-2xl text-white font-bold text-base transition active:scale-95 shadow-lg"
                                         :class="{
                                             'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30':     dialogState.variant === 'info',
@@ -505,26 +506,29 @@
                 <h2 class="text-2xl font-extrabold mb-2">欢迎来到whisper语音识别小助手！</h2>
                 <p class="mb-8 text-sm">请输入你的专属代号和密码╰(*°▽°*)╯</p>
 
+                <form @submit.prevent="handleAuth('login')">
                 <div class="login-field mb-4">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-6.32 3.9A1 1 0 006.57 19.4h10.86a1 1 0 00.89-1.5A7 7 0 0012 14z"></path></svg>
                     <input v-model="loginInput"
                            type="text"
+                           aria-label="代号"
                            placeholder="代号（例如：哈基米/LolCat）"
                            class="login-input w-full rounded-2xl px-5 py-4 text-lg font-bold transition">
                 </div>
                 <div class="login-field mb-6">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
                     <input v-model="passwordInput"
-                           @keyup.enter="handleAuth('login')"
+                           aria-label="密码"
                            type="password"
                            placeholder="密码（4-16 个字符）"
                            autocomplete="current-password"
                            class="login-input w-full rounded-2xl px-5 py-4 text-lg font-bold transition">
                 </div>
                 <div class="flex flex-col gap-3">
-                    <button @click="handleAuth('login')" class="login-btn-primary w-full font-extrabold text-lg py-4 rounded-2xl transition transform hover:-translate-y-1 active:translate-y-0">直接登录</button>
-                    <button @click="handleAuth('register')" class="login-btn-ghost w-full font-extrabold text-lg py-3 rounded-2xl transition hover:-translate-y-1 active:translate-y-0">注册新代号</button>
+                    <button type="submit" class="login-btn-primary w-full font-extrabold text-lg py-4 rounded-2xl transition transform hover:-translate-y-1 active:translate-y-0">直接登录</button>
+                    <button type="button" @click="handleAuth('register')" class="login-btn-ghost w-full font-extrabold text-lg py-3 rounded-2xl transition hover:-translate-y-1 active:translate-y-0">注册新代号</button>
                 </div>
+                </form>
             </div>
         </div>
         <!-- ============ /登录界面 ============ -->
@@ -627,7 +631,7 @@
             </div>
 
             <div class="space-y-3">
-                <div v-for="(task, index) in tasks" :key="task.id" @click="openFocusMode(index)" class="bg-white p-4 rounded-2xl shadow-sm border border-transparent group relative flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer" :class="task.is_completed ? 'bg-green-50/40 border-green-200' : 'hover:border-blue-200'">
+                <div v-for="(task, index) in tasks" :key="task.id" @click="openFocusMode(index)" tabindex="0" @keyup.enter="openFocusMode(index)" class="bg-white p-4 rounded-2xl shadow-sm border border-transparent group relative flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:shadow-md hover:scale-[1.01] cursor-pointer" :class="task.is_completed ? 'bg-green-50/40 border-green-200' : 'hover:border-blue-200'">
                     
                     <div class="flex items-center flex-1 pr-10 md:pr-4">
                         <span class="flex-shrink-0 bg-blue-50 text-blue-600 rounded-full w-9 h-9 flex items-center justify-center font-bold mr-4 shadow-sm border border-blue-100">{{ index + 1 }}</span>
@@ -671,7 +675,7 @@
                 </div>
             </div>
 
-            <div v-if="focusedTaskIndex !== null && focusedTask" class="fixed inset-0 z-[100] flex items-center justify-center">
+            <div v-if="focusedTaskIndex !== null && focusedTask" ref="focusModeRoot" class="fixed inset-0 z-[100] flex items-center justify-center">
                 <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" @click="closeFocusMode"></div>
 
                 <div class="relative z-10 w-full max-w-5xl px-4 flex items-center justify-between pointer-events-none">
@@ -1324,7 +1328,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=2.9"></script>
+    <script type="module" src="/static/js/app.js?v=2.10"></script>
     <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>

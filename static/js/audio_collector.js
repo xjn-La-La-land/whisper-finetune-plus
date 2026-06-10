@@ -1,4 +1,4 @@
-const { ref, computed, onMounted, onUnmounted, nextTick } = Vue;
+const { ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch, sseUrl } from './api.js?v=1.2';
 import { friendlyHttpError, friendlyNetworkError } from './errors.js?v=1';
@@ -229,6 +229,21 @@ export default {
         // --- 沉浸式模式控制逻辑 ---
         const openFocusMode = (index) => { focusedTaskIndex.value = index; };
         const closeFocusMode = () => { focusedTaskIndex.value = null; };
+        // 沉浸式开合时的焦点管理（键盘/运动障碍用户）
+        const focusModeRoot = ref(null);
+        let lastFocusedBeforeFocus = null;
+        watch(focusedTaskIndex, async (idx, prev) => {
+            if (idx !== null && prev === null) {
+                lastFocusedBeforeFocus = document.activeElement;
+                await nextTick();
+                const el = focusModeRoot.value;
+                const btn = el && el.querySelector('button');
+                if (btn) btn.focus();
+            } else if (idx === null && prev !== null) {
+                if (lastFocusedBeforeFocus && lastFocusedBeforeFocus.focus) lastFocusedBeforeFocus.focus();
+                lastFocusedBeforeFocus = null;
+            }
+        });
         const prevFocusTask = () => { if (focusedTaskIndex.value > 0) focusedTaskIndex.value--; };
         const nextFocusTask = () => { if (focusedTaskIndex.value < tasks.value.length - 1) focusedTaskIndex.value++; };
 
@@ -261,7 +276,7 @@ export default {
             busyImport, busyAdd, savingTaskId, deletingTaskId, clearing,
             newTaskText, addTask, editingTaskId, editingTaskText, startEditing, saveEdit, cancelEdit, deleteTask, clearAllTasks,
             completedCount, progressPercentage,
-            focusedTaskIndex, focusedTask, openFocusMode, closeFocusMode, prevFocusTask, nextFocusTask,
+            focusedTaskIndex, focusedTask, openFocusMode, closeFocusMode, prevFocusTask, nextFocusTask, focusModeRoot,
             audioSrc
         }
     }
