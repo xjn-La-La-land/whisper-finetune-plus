@@ -1,6 +1,7 @@
 const { ref, computed, onMounted, onActivated, nextTick, watch } = Vue;
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch } from './api.js?v=1.2';
+import { friendlyHttpError, friendlyNetworkError } from './errors.js?v=1';
 import * as wasm from './wasm_whisper.js?v=1.3';
 import { loadConverter, toSimplified } from './zhconv_lite.js?v=1.0';
 
@@ -269,7 +270,7 @@ export default {
             fd.append('model_name', selectedModel.value);
             try {
                 const res = await apiFetch('/api/recognition', { method: 'POST', body: fd });
-                if (!res.ok) { const err = await res.json(); await typeStatus(`❌ 错误: ${err.detail}`, 'error'); return; }
+                if (!res.ok) { const m = await friendlyHttpError(res); if (m) await typeStatus(`❌ ${m}`, 'error'); return; }
                 const data = await res.json();
                 const t = data.used_model_type === 'base' ? 'base' : 'finetuned';
                 usedModelType.value = `${data.used_model} (服务端·${t})`;
@@ -277,7 +278,7 @@ export default {
                 for (const chunk of data.results) await typeTranscript(chunk);
                 await typeStatus('✨ 识别完成！等待下一次指令...', 'system');
             } catch (err) {
-                await typeStatus(`❌ 网络请求失败: ${err.message}`, 'error');
+                await typeStatus(`❌ ${friendlyNetworkError()}`, 'error');
             } finally {
                 isProcessing.value = false;
             }

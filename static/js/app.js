@@ -3,9 +3,10 @@ const { createApp, ref, onMounted, watchEffect, nextTick } = Vue;
 import CustomAudio from './custom_audio.js?v=1.2';
 import AudioCollector from './audio_collector.js?v=1.3';
 import FinetunePanel from './finetune_panel.js?v=1.7';
-import InferencePanel from './inference_panel.js?v=1.12';
+import InferencePanel from './inference_panel.js?v=1.13';
 import * as dialog from './dialog.js?v=1.2';
 import { apiFetch, setToken, clearToken, getToken, getStoredUsername } from './api.js?v=1.2';
+import { friendlyNetworkError } from './errors.js?v=1';
 
 const app = createApp({
     setup() {
@@ -115,7 +116,7 @@ const app = createApp({
                 // 清掉密码输入框，避免悬停回显
                 passwordInput.value = "";
             } catch (err) {
-                await dialog.alert("网络请求失败，请检查后端服务是否启动！", { variant: 'danger' });
+                await dialog.alert(friendlyNetworkError(), { variant: 'danger' });
             }
         };
 
