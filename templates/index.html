@@ -154,6 +154,22 @@
         /* 文字阴影，磨砂上更清晰 */
         .login-card h2 { color: #f8fafc; text-shadow: 0 1px 10px rgba(0, 0, 0, .5); }
         .login-card p  { color: #e2e8f0; text-shadow: 0 1px 8px rgba(0, 0, 0, .45); }
+        /* —— 登录品牌区：小标签 + whisper 暖金字标 + 诗意副题（更"高级"的排版）—— */
+        .login-card .login-eyebrow {
+            font-size: 12px; font-weight: 600; letter-spacing: .22em; color: #fcd34d;
+            margin-bottom: 14px; text-shadow: 0 1px 8px rgba(0,0,0,.45);
+        }
+        .login-card .login-wordmark {
+            font-family: var(--cs-display); font-size: clamp(40px, 8vw, 54px); font-weight: 800;
+            letter-spacing: -.02em; line-height: 1; margin-bottom: 14px;
+            background: linear-gradient(135deg, #fde68a, #f59e0b);
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+            filter: drop-shadow(0 2px 16px rgba(245,158,11,.35));
+        }
+        .login-card .login-tagline {
+            font-size: 14.5px; color: rgba(226,232,240,.82); letter-spacing: .04em;
+            text-shadow: 0 1px 8px rgba(0,0,0,.4); margin-bottom: 2rem;
+        }
         @keyframes cardIn { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
 
         /* —— 麦克风徽章 + "正在聆听"涟漪 —— */
@@ -394,10 +410,121 @@
         ::view-transition-new(root) { z-index: 1; }   /* 新主题在上、被圆形 clip 揭开 */
         ::view-transition-old(root) { z-index: 0; }
 
+        /* ========================================================================
+           外壳重构：左侧 dock 侧栏（替换顶部 header + 底部胶囊 tab）+ 设计令牌。
+           侧栏用自有 .cs-* 类（不依赖 Tailwind 工具类，无需重新编译），深/浅主题均适配。
+           结构改动，可整段删除回滚。
+           ===================================================================== */
+        :root{
+            --cs-gold:#fcd34d; --cs-gold-2:#f59e0b; --cs-gold-ink:#3a2c06;
+            --cs-gold-soft:rgba(252,211,77,.13); --cs-gold-line:rgba(252,211,77,.38);
+        }
+        .cs-shell{ position:relative; }
+        .cs-main{ margin-left:84px; }
+        .cs-main-inner{ max-width:1600px; margin:0 auto; padding:24px 32px 48px; }
+
+        .cs-sidebar{
+            position:fixed; left:0; top:0; bottom:0; width:84px; height:100vh; z-index:60;
+            display:flex; flex-direction:column; align-items:center; gap:6px; padding:20px 0;
+            background:linear-gradient(180deg, rgba(13,19,38,.72), rgba(8,12,24,.62));
+            backdrop-filter:blur(22px) saturate(140%); -webkit-backdrop-filter:blur(22px) saturate(140%);
+            border-right:1px solid rgba(255,255,255,.09);
+        }
+        html.theme-light-app .cs-sidebar{
+            background:rgba(255,255,255,.82); border-right-color:rgba(2,6,23,.08);
+            box-shadow:0 8px 30px rgba(2,6,23,.10);
+        }
+        .cs-brand{
+            width:46px; height:46px; border-radius:15px; flex:0 0 auto; margin-bottom:14px;
+            display:grid; place-items:center; color:var(--cs-gold-ink);
+            background:linear-gradient(135deg,var(--cs-gold),var(--cs-gold-2));
+            box-shadow:0 8px 22px rgba(245,158,11,.35), inset 0 1px 0 rgba(255,255,255,.45);
+        }
+        .cs-brand svg{ width:24px; height:24px; }
+        .cs-nav{
+            position:relative; width:62px; padding:9px 0; border:0; background:transparent; cursor:pointer;
+            display:flex; flex-direction:column; align-items:center; gap:3px; border-radius:16px;
+            color:#6a7593; font-family:inherit; font-size:11px; font-weight:600;
+            transition:color .3s, background .3s;
+        }
+        html.theme-light-app .cs-nav{ color:#94a3b8; }
+        .cs-nav .ic{ font-size:21px; line-height:1; }
+        .cs-nav:hover{ color:#9aa7c4; background:rgba(255,255,255,.05); }
+        html.theme-light-app .cs-nav:hover{ color:#475569; background:rgba(2,6,23,.04); }
+        .cs-nav.active{ color:var(--cs-gold); background:var(--cs-gold-soft); }
+        .cs-nav.active::before{
+            content:""; position:absolute; left:-12px; top:50%; transform:translateY(-50%);
+            width:3.5px; height:26px; border-radius:3px; background:linear-gradient(var(--cs-gold),var(--cs-gold-2));
+            box-shadow:0 0 14px var(--cs-gold);
+        }
+        .cs-side-bottom{ margin-top:auto; display:flex; flex-direction:column; align-items:center; gap:10px; }
+        .cs-icon-btn{
+            width:44px; height:44px; border-radius:13px; display:grid; place-items:center; cursor:pointer;
+            border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05); color:#9aa7c4;
+            transition:color .25s, border-color .25s, background .25s, transform .15s;
+        }
+        html.theme-light-app .cs-icon-btn{ border-color:rgba(2,6,23,.08); background:rgba(2,6,23,.03); color:#64748b; }
+        .cs-icon-btn:hover{ color:var(--cs-gold); border-color:var(--cs-gold-line); }
+        .cs-icon-btn:active{ transform:scale(.92); }
+        .cs-icon-btn svg{ width:20px; height:20px; }
+        .cs-user{
+            width:44px; height:44px; border-radius:13px; display:grid; place-items:center;
+            font-weight:800; font-size:17px;
+            background:var(--cs-gold-soft); border:1px solid var(--cs-gold-line); color:var(--cs-gold);
+        }
+        /* 窄屏：侧栏 → 底部一体 dock */
+        @media (max-width:900px){
+            .cs-main{ margin-left:0; }
+            .cs-main-inner{ padding:12px 14px 92px; }
+            .cs-sidebar{
+                position:fixed; left:0; right:0; bottom:0; top:auto; width:auto; height:66px; flex:none;
+                flex-direction:row; justify-content:space-around; gap:4px; padding:0 10px;
+                border-right:0; border-top:1px solid rgba(255,255,255,.09);
+            }
+            .cs-brand{ display:none; }
+            .cs-nav{ flex-direction:row; gap:7px; width:auto; padding:0 14px; height:46px; font-size:13px; }
+            .cs-nav.active::before{ left:50%; top:auto; bottom:-11px; transform:translateX(-50%); width:24px; height:3px; }
+            .cs-side-bottom{ margin-top:0; flex-direction:row; gap:8px; }
+            .cs-user{ display:none; }
+        }
+
+        /* ===== Phase 2 微调页：统一暖金主色 —— 金色步骤节点 + 金色渐变主按钮 ===== */
+        .cs-step-badge{
+            width:36px; height:36px; border-radius:12px; flex:0 0 auto;
+            display:grid; place-items:center; font-weight:800; font-size:17px; color:var(--cs-gold-ink);
+            background:linear-gradient(135deg, var(--cs-gold), var(--cs-gold-2));
+            box-shadow:0 8px 20px rgba(245,158,11,.35), inset 0 1px 0 rgba(255,255,255,.45);
+        }
+        /* 金色主按钮：叠加在原有 Tailwind 按钮上，用 !important 盖掉蓝/绿底色但保留尺寸/间距类 */
+        .cs-btn-gold{
+            color:var(--cs-gold-ink) !important;
+            background:linear-gradient(135deg, var(--cs-gold), var(--cs-gold-2)) !important;
+            box-shadow:0 10px 26px rgba(245,158,11,.32), inset 0 1px 0 rgba(255,255,255,.5) !important;
+        }
+        .cs-btn-gold:hover:not(:disabled){ filter:brightness(1.05); }
+        .cs-btn-gold:disabled{
+            background:linear-gradient(135deg,#475569,#334155) !important;
+            color:#94a3b8 !important; box-shadow:none !important;
+        }
+
+        /* ===== 排版：自托管 Sora 显示字体（无 CDN）+ 克制字阶 + 数字 tabular-nums ===== */
+        @font-face{
+            font-family:'Sora'; font-style:normal; font-weight:100 800; font-display:swap;
+            src:url('/static/fonts/sora/Sora.woff2') format('woff2');
+        }
+        :root{ --cs-display:'Sora','PingFang SC','Noto Sans SC','Microsoft YaHei','Segoe UI',sans-serif; }
+        /* 数字全局等宽对齐（进度 %、loss step、模型时间、比例…）；中文不受影响 */
+        body{ font-variant-numeric: tabular-nums; }
+        /* 标题/品牌/导航/编号节点用显示字体（拉丁与数字走 Sora，中文自动回落），微收字距更精致 */
+        h1, h2, h3, .cs-brand, .cs-nav, .cs-step-badge, .cs-user{ font-family: var(--cs-display); }
+        h1, h2, h3{ letter-spacing:-0.01em; }
+        .cs-nav svg{ width:22px; height:22px; }
+        @media (max-width:900px){ .cs-nav svg{ width:20px; height:20px; } }
+
     </style>
 </head>
-<body class="font-sans min-h-screen pb-28">
-    <div id="app" class="max-w-[1600px] mx-auto px-4 lg:px-6 relative h-full">
+<body class="font-sans min-h-screen">
+    <div id="app" class="relative h-full">
 
         <!-- ============ 全局自定义对话框（替代原生 alert / confirm）============ -->
         <!-- 放在 #app 顶层、登录遮罩之外，z-index 最高，登录界面也能正常弹出 -->
@@ -503,8 +630,9 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
                 </div>
 
-                <h2 class="text-2xl font-extrabold mb-2">欢迎来到whisper语音识别小助手！</h2>
-                <p class="mb-8 text-sm">请输入你的专属代号和密码╰(*°▽°*)╯</p>
+                <div class="login-eyebrow">语音采集 · 微调 · 识别</div>
+                <h1 class="login-wordmark">whisper</h1>
+                <p class="login-tagline">听见每一个独特的声音</p>
 
                 <form @submit.prevent="handleAuth('login')">
                 <div class="login-field mb-4">
@@ -533,61 +661,57 @@
         </div>
         <!-- ============ /登录界面 ============ -->
 
-        <div v-if="currentUser" :class="{ 'vg-app': theme === 'dark' }">
-            <div class="sticky top-0 z-50 bg-blue-50/60 backdrop-blur-xl pt-5 pb-3 mb-4 -mx-4 px-4 border-b border-white/40 shadow-sm transition-all">
-                <div class="flex items-center justify-between max-w-[1500px] mx-auto">
-                    <div class="flex-1"></div>
-                    <h1 class="text-2xl md:text-3xl font-extrabold text-blue-600 text-center tracking-wider flex items-center justify-center gap-2 flex-[2] whitespace-nowrap">
-                        <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
-                        whisper语音识别小助手
-                    </h1>
-                    <div class="flex-1 flex justify-end">
-                        <div class="bg-white/80 border border-blue-100 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-sm text-sm font-bold text-gray-600">
-                            👤 {{ currentUser }}
-                            <button @click="handleLogout" title="退出登录" class="bg-gray-100 hover:bg-red-50 hover:text-red-500 p-1.5 rounded-full transition"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div v-if="currentUser" class="cs-shell" :class="{ 'vg-app': theme === 'dark' }">
 
+            <!-- ===== 左侧 dock 侧栏（替换原顶部 header + 底部胶囊 tab）===== -->
+            <aside class="cs-sidebar">
+                <div class="cs-brand" title="whisper 语音小助手">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                </div>
+
+                <template v-if="!isCollectOnly">
+                    <button class="cs-nav" :class="{ active: currentTab === 'AudioCollector' }" @click="changeTab('AudioCollector')">
+                        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>采集
+                    </button>
+                    <button class="cs-nav" :class="{ active: currentTab === 'FinetunePanel' }" @click="changeTab('FinetunePanel')">
+                        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"></path></svg>微调
+                    </button>
+                    <button class="cs-nav" :class="{ active: currentTab === 'InferencePanel' }" @click="changeTab('InferencePanel')">
+                        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"></path></svg>识别
+                    </button>
+                </template>
+                <div v-else class="cs-nav active">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>采集
+                </div>
+
+                <div class="cs-side-bottom">
+                    <button @click="toggleTheme($event)" class="cs-icon-btn" :title="theme === 'dark' ? '切换到亮色模式 ☀' : '切换到暗色模式 ☾'" :aria-label="theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'">
+                        <svg v-if="theme === 'dark'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                        <svg v-else fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+                    </button>
+                    <button @click="handleLogout" class="cs-icon-btn" title="退出登录" aria-label="退出登录">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    </button>
+                    <div class="cs-user" :title="currentUser">{{ (currentUser || '·').slice(0, 1) }}</div>
+                </div>
+            </aside>
+
+            <!-- ===== 主内容区 ===== -->
+            <div class="cs-main">
+            <div class="cs-main-inner">
             <transition :name="transitionName" mode="out-in">
                 <keep-alive>
                     <component :is="currentTab" :current-user="currentUser" :has-gpu="hasGpu"></component>
                 </keep-alive>
             </transition>
-            
-            <div v-if="!isCollectOnly" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 sm:px-0">
-                <div class="relative flex w-full bg-white/70 backdrop-blur-xl p-1.5 rounded-2xl shadow-2xl border border-white/60">
-                    
-                    <div class="absolute top-1.5 bottom-1.5 w-[calc(33.33%-6px)] bg-blue-500 rounded-xl shadow-md transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) z-0"
-                         :class="currentTab === 'AudioCollector' ? 'left-1.5' : (currentTab === 'FinetunePanel' ? 'left-[33.33%]' : 'left-[calc(66.66%+1.5px)]')">
-                    </div>
-
-                    <button @click="changeTab('AudioCollector')" class="relative z-10 flex-1 py-3 flex items-center justify-center gap-2 rounded-xl font-extrabold text-sm md:text-base transition-colors duration-300" :class="currentTab === 'AudioCollector' ? 'text-white' : 'text-gray-500 hover:text-blue-500'">🎙️ 音频采集</button>
-                    <button @click="changeTab('FinetunePanel')" class="relative z-10 flex-1 py-3 flex items-center justify-center gap-2 rounded-xl font-extrabold text-sm md:text-base transition-colors duration-300" :class="currentTab === 'FinetunePanel' ? 'text-white' : 'text-gray-500 hover:text-blue-500'">⚙️ 模型微调</button>
-                    <button @click="changeTab('InferencePanel')" class="relative z-10 flex-1 py-3 flex items-center justify-center gap-2 rounded-xl font-extrabold text-sm md:text-base transition-colors duration-300" :class="currentTab === 'InferencePanel' ? 'text-white' : 'text-gray-500 hover:text-blue-500'">✨ 语音识别</button>
-                </div>
-            </div>
-
-            <!-- 主题切换悬浮按钮（右下角；移动端自动抬高避开 tab 栏）。点击 → 从按钮圆形扩散切换 light/dark -->
-            <button @click="toggleTheme($event)"
-                    class="theme-fab"
-                    :title="theme === 'dark' ? '切换到亮色模式 ☀' : '切换到暗色模式 ☾'"
-                    :aria-label="theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'">
-                <svg v-if="theme === 'dark'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                </svg>
-                <svg v-else fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="4"></circle>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
-                </svg>
-            </button>
+            </div><!-- /cs-main-inner -->
+            </div><!-- /cs-main -->
         </div>
     </div>
 
     <template id="tpl-audio-collector">
         <div>
-            <div class="sticky top-[76px] z-40 bg-blue-50/40 backdrop-blur-lg pt-2 pb-4 mb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div class="sticky top-0 z-40 bg-blue-50/40 backdrop-blur-lg pt-2 pb-4 mb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
                 <div class="mb-5 px-1 max-w-[1500px] mx-auto flex items-end gap-4">
                     <div class="flex-1">
                         <div class="flex justify-between text-sm font-bold text-gray-500 mb-1">
@@ -745,7 +869,7 @@
 
             <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 transition hover:shadow-md">
                 <div class="flex items-center gap-3 mb-6">
-                    <span class="bg-blue-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg shadow-sm">1</span>
+                    <span class="cs-step-badge">1</span>
                     <h3 class="text-xl font-extrabold text-gray-800">整理录音数据</h3>
                 </div>
                 
@@ -763,7 +887,7 @@
                     </div>
                     
                     <div class="flex-shrink-0 w-full md:w-auto">
-                        <button @click="handleBuildDataset" :disabled="isBuilding" class="w-full md:w-auto bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-8 py-4 rounded-2xl font-extrabold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30">
+                        <button @click="handleBuildDataset" :disabled="isBuilding" class="cs-btn-gold w-full md:w-auto bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-8 py-4 rounded-2xl font-extrabold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30">
                             <svg v-if="isBuilding" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             {{ isBuilding ? '整理中...' : '生成数据集' }}
                         </button>
@@ -779,7 +903,7 @@
             <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 transition hover:shadow-md" :class="!hasDataset ? 'opacity-60 pointer-events-none grayscale-[30%]' : ''">
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center gap-3">
-                        <span class="bg-blue-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg shadow-sm">2</span>
+                        <span class="cs-step-badge">2</span>
                         <h3 class="text-xl font-extrabold text-gray-800">调整微调参数</h3>
                     </div>
                     <span v-if="!hasDataset" class="text-xs font-bold text-orange-500 bg-orange-50 px-3 py-1 rounded-full border border-orange-100">请先完成第 1 步</span>
@@ -985,7 +1109,7 @@
             </div>
 
             <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-blue-50 text-center transition hover:shadow-md" :class="!hasDataset ? 'opacity-60 pointer-events-none grayscale-[30%]' : ''">
-                <button @click="handleStartFinetune" :disabled="isTraining || !hasDataset || !hasGpu || modelNameStatus.state === 'taken' || modelNameStatus.state === 'invalid'" :title="!hasGpu ? '当前为 CPU 环境，微调需 GPU 平台' : ''" class="w-full md:w-auto bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 disabled:from-gray-300 disabled:to-gray-400 text-white px-12 py-5 rounded-full font-extrabold text-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3 shadow-xl mx-auto mb-6 disabled:transform-none disabled:shadow-none">
+                <button @click="handleStartFinetune" :disabled="isTraining || !hasDataset || !hasGpu || modelNameStatus.state === 'taken' || modelNameStatus.state === 'invalid'" :title="!hasGpu ? '当前为 CPU 环境，微调需 GPU 平台' : ''" class="cs-btn-gold w-full md:w-auto bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 disabled:from-gray-300 disabled:to-gray-400 text-white px-12 py-5 rounded-full font-extrabold text-xl transition transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3 shadow-xl mx-auto mb-6 disabled:transform-none disabled:shadow-none">
                     <svg v-if="!hasGpu" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <svg v-else-if="!isTraining" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <svg v-else class="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
