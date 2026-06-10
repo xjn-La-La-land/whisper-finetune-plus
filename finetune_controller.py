@@ -4,6 +4,8 @@ import asyncio
 import json
 import time
 import sys
+import signal
+import shutil
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
@@ -40,6 +42,11 @@ BASE_MODEL_DOWNLOAD_STATE = {
     model_name: {"status": "idle", "message": ""}
     for model_name in SUPPORTED_BASE_MODELS
 }
+
+# 正在运行的训练子进程登记表（仅 uvicorn --workers 1 下有效，与 GPU_STATE 同约束，见 P1-3）。
+# cancelled 在下一次 start_finetune 抢锁时复位；保留到那时，是为了让 log_generator 在
+# GPU_STATE 复位为 IDLE 之后仍能判断「这是用户主动停止」从而发 stopped 而非 finished。
+TRAINING_PROC = {"proc": None, "pgid": None, "cancelled": False}
 
 
 def _is_user_training(username: str) -> bool:
@@ -218,13 +225,23 @@ async def run_finetune_process(username: str, req: FinetuneRequest):
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,   # 自成进程组；停止时可连带 dataloader worker 一起 killpg
             )
+            # 登记句柄/进程组，供 /api/stop_finetune 终止
+            TRAINING_PROC["proc"] = process
+            try:
+                TRAINING_PROC["pgid"] = os.getpgid(process.pid)
+            except Exception:
+                TRAINING_PROC["pgid"] = None
 
             # 等待微调进程结束 (这里可能需要几十分钟到几个小时)
             stdout, stderr = await process.communicate()
 
-            if process.returncode == 0:
+            if TRAINING_PROC["cancelled"]:
+                print(f"[{username}] 训练已被用户停止，清理半成品输出目录：{output_dir}")
+                await asyncio.to_thread(shutil.rmtree, output_dir, ignore_errors=True)
+            elif process.returncode == 0:
                 print(f"[{username}] 微调成功！")
                 if os.path.exists(output_dir):
                     await _upsert_user_model(username, req.model_name)
@@ -355,11 +372,61 @@ async def start_finetune(
         GPU_STATE["current_user"] = current_user
         # 记下正在训练的模型名，方便前端刷新后从 /api/gpu_status 恢复 SSE 连接
         GPU_STATE["current_model_name"] = req.model_name
+        # 复位上一轮的停止标志与句柄（句柄稍后在 run_finetune_process 里登记）
+        TRAINING_PROC["cancelled"] = False
+        TRAINING_PROC["proc"] = None
+        TRAINING_PROC["pgid"] = None
 
     # 丢给后台任务去执行，username 作为独立参数传递（FinetuneRequest 已不含 username）
     background_tasks.add_task(run_finetune_process, current_user, req)
 
     return {"message": "微调任务已在后台启动！"}
+
+
+@router.post("/api/stop_finetune")
+async def stop_finetune(current_user: str = Depends(get_current_user)):
+    # 原子校验：必须正在训练，且只有发起者本人可停
+    async with GPU_LOCK:
+        if GPU_STATE["status"] != GPUStatus.TRAINING:
+            raise HTTPException(status_code=409, detail="当前没有正在进行的训练任务。")
+        if GPU_STATE["current_user"] != current_user:
+            raise HTTPException(
+                status_code=423,
+                detail=f"当前训练由用户 [{GPU_STATE['current_user']}] 发起，只有发起者本人可以停止。"
+            )
+        TRAINING_PROC["cancelled"] = True
+        proc = TRAINING_PROC.get("proc")
+        pgid = TRAINING_PROC.get("pgid")
+
+    # 锁外执行 kill，避免阻塞只读状态查询
+    if proc is None or proc.returncode is not None:
+        # 进程已退出（或刚启动尚未登记句柄），交由 run_finetune_process 的 finally 复位
+        return {"message": "训练已停止。"}
+
+    try:
+        if pgid is not None:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except ProcessLookupError:
+        pass
+
+    # SIGKILL 兜底：宽限 10s，若仍未退出（torch/CUDA 卡住）则强杀整组，防止锁永久卡 TRAINING
+    async def _force_kill_after_grace(p, gid):
+        try:
+            await asyncio.sleep(10)
+            if p.returncode is None:
+                if gid is not None:
+                    os.killpg(gid, signal.SIGKILL)
+                else:
+                    p.kill()
+        except ProcessLookupError:
+            pass
+        except Exception as ex:
+            print(f"[stop_finetune] 强杀兜底异常: {ex}")
+    asyncio.create_task(_force_kill_after_grace(proc, pgid))
+
+    return {"message": "已发送停止信号，训练即将结束。"}
 
 
 @router.get("/api/check_model_name")
@@ -446,7 +513,10 @@ async def log_generator(username: str, model_name: str):
     while not os.path.exists(log_path):
         # 如果等待期间训练已经意外终止，直接退出
         if not _is_user_training(username):
-            yield f"data: {{\"status\": \"error\", \"message\": \"训练未启动或提前异常终止\"}}\n\n"
+            if TRAINING_PROC.get("cancelled"):
+                yield f"data: {{\"status\": \"stopped\", \"message\": \"训练已被用户停止\"}}\n\n"
+            else:
+                yield f"data: {{\"status\": \"error\", \"message\": \"训练未启动或提前异常终止\"}}\n\n"
             return
 
         if wait_time > 120:  # 设置 2 分钟超时
@@ -474,8 +544,10 @@ async def log_generator(username: str, model_name: str):
                 # 读到了文件末尾（EOF）
                 # 检查当前用户的训练任务是否还在继续
                 if not _is_user_training(username):
-                    # 训练已经结束，发送完成信号跳出循环
-                    yield f"data: {{\"status\": \"finished\", \"message\": \"训练已完成\"}}\n\n"
+                    if TRAINING_PROC.get("cancelled"):
+                        yield f"data: {{\"status\": \"stopped\", \"message\": \"训练已被用户停止\"}}\n\n"
+                    else:
+                        yield f"data: {{\"status\": \"finished\", \"message\": \"训练已完成\"}}\n\n"
                     break
 
                 # 训练还在进行，只是当前没有新日志，稍微让出 CPU 稍后再试
