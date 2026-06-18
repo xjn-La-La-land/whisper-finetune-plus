@@ -26,8 +26,6 @@
    conda create -n whisper python=3.11 -y && conda activate whisper
    sudo apt update && sudo apt install ffmpeg                 # 系统依赖：音频流转码
    pip install -r requirements.txt
-   # torch 的 wheel 与 CUDA 强绑定，按你的机器单独装，例如 RTX 4090 + CUDA 13.0：
-   pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130
    ```
 
    > 安卓 App 开发是另一套环境（`env.yaml`，环境名 `whisper-app`），见 [`Adroid_app.md`](Adroid_app.md)。

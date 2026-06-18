@@ -74,8 +74,6 @@ cd whisper-finetune-plus
 conda create -n whisper python=3.11 -y && conda activate whisper
 sudo apt update && sudo apt install ffmpeg        # 系统依赖：音频流转码
 pip install -r requirements.txt
-# torch 的 wheel 与 CUDA 强绑定，按你的机器单独装，例如 RTX 4090 + CUDA 13.0：
-pip install torch==2.10.0+cu130 --index-url https://download.pytorch.org/whl/cu130
 
 # 3. 下载基座模型到 ./whisper-base-models（默认 ModelScope 源，境内直连免代理）
 python download_whisper_models.py whisper-small
