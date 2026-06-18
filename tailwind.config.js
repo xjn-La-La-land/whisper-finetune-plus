@@ -1,6 +1,6 @@
 /**
  * Tailwind v3 构建配置 —— 把原来的 Play CDN (https://cdn.tailwindcss.com) 换成本地预编译 CSS，
- * 解决国内访问海外 CDN 慢/失败导致页面无样式的问题（见 TODO_PUBLIC_DEPLOY.md 的 A-5）。
+ * 解决国内访问海外 CDN 慢/失败导致页面无样式的问题（见 doc/TODO_PUBLIC_DEPLOY.md 的 A-5）。
  *
  * 重新生成 static/vendor/tailwind.css（改动 HTML/JS 里的 class 后需重跑）：
  *   npx --yes tailwindcss@3 -c tailwind.config.js -i tailwind.input.css -o static/vendor/tailwind.css --minify

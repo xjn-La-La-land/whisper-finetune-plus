@@ -102,7 +102,7 @@
 - 云速/月转速/月晕/星密：`@keyframes clouddrift|moonspin|glowpulse|twinkle2` 时长，及 `.layer-stars` 里 `.tw` 数量。
 - 月亮位置/大小：`.moon` 与 `.moon-glow` 的 `left/top/width`（现 49% / 17.8% / 12.1%）。
 
-**换插画 / 重抠图层**：用同一张源图（`assets/login_ref_wide_clean.png`），按下方 prompt 让 Gemini 出
+**换插画 / 重抠图层**：用同一张横屏源图，按下方 prompt 让 Gemini 出
 **纯色背景**的各层，再本地抠（云/前景品红 chroma-key、月亮暗场景按亮度、sky 纯星空），覆盖同名 webp 并把 `?v=` +1。
 
 - sky：`keep ONLY the starry sky; remove moon, all clouds, and the foreground; fill with more starry sky; remove any signature; same canvas size.`

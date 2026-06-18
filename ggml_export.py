@@ -10,7 +10,7 @@
 #       --output output/<user>/<model>/ggml/whisper.bin --quantize q5_0 \
 #       --test_audio uploads/admin/task_804.wav
 #
-# 见 TODO_WHISPER_CPP_WASM.md 的 P1-2 / P0-3。
+# 见 doc/TODO_WHISPER_CPP_WASM.md 的 P1-2 / P0-3。
 import os
 import sys
 import shutil
@@ -71,7 +71,7 @@ def _ensure_prereqs() -> Optional[str]:
     if not os.path.exists(npz):
         return (f"缺少 mel_filters.npz: {npz}\n"
                 "请从 openai/whisper 仓库的 whisper/assets/mel_filters.npz 拷到该位置"
-                "（仅 4.3KB；见 TODO_WHISPER_CPP_WASM.md P0-1）。")
+                "（仅 4.3KB；见 doc/TODO_WHISPER_CPP_WASM.md P0-1）。")
     return None
 
 

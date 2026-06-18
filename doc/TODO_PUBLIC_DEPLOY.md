@@ -420,7 +420,7 @@ tmux new -s frpc
 **实施步骤**
 1. VPS 上 `COLLECT_ONLY=1 uvicorn main:app ...`（不装 torch，轻量）。
 2. Caddy 把采集相关路由指到 VPS 本地采集服务、推理相关指到 frp 回源（或两套子域名）。
-3. 定期 `bash sync_from_cloud.sh` 把 `uploads/` 同步回训练机并回填 `data/tasks.db`
+3. 定期 `bash scripts/sync_from_cloud.sh` 把 `uploads/` 同步回训练机并回填 `data/tasks.db`
    （注意脚本里 `LOCAL_DIR` 应指向 Featurize 同步盘下的项目路径）。
 
 **预估工作量**：1~2 小时（架构增量，按需做）

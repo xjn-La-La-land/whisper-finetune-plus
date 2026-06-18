@@ -30,10 +30,23 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     cur.execute(
         '''
         CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY
+            username TEXT PRIMARY KEY,
+            password_hash TEXT,
+            created_at INTEGER,
+            last_login_at INTEGER
         )
         '''
     )
+    # users 表结构与采集 app（data_collector.py）保持一致：缺列就补，只加列不删行。
+    # 这样后续采集 app 启动做迁移时不会把同步来的用户当“旧版无密码表”清空。
+    cur.execute("PRAGMA table_info(users)")
+    user_columns = {row[1] for row in cur.fetchall()}
+    if "password_hash" not in user_columns:
+        cur.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+    if "created_at" not in user_columns:
+        cur.execute("ALTER TABLE users ADD COLUMN created_at INTEGER")
+    if "last_login_at" not in user_columns:
+        cur.execute("ALTER TABLE users ADD COLUMN last_login_at INTEGER")
 
     cur.execute(
         '''
@@ -132,10 +145,80 @@ def sync_one_user(conn: sqlite3.Connection, uploads_dir: Path, username: str) ->
     return inserted, updated
 
 
+def sync_users_from_remote(conn, remote_db_path, only_user=None):
+    """从远端数据库副本把登录凭据合并进本地 users 表。
+
+    搬运 username + password_hash + created_at + last_login_at。密码是 bcrypt 哈希
+    （单向、含 salt），跨机复制安全；用户搬过来后可用原密码登录。
+
+    只动 users 表，本地的 models / tasks 表完全不受影响。
+    返回成功合并的用户数。
+    """
+    remote_db = Path(remote_db_path)
+    if not remote_db.exists():
+        print(f"⚠️ 远端数据库副本不存在，跳过登录凭据同步: {remote_db}")
+        return 0
+
+    # 以读写方式打开“临时副本”，让 SQLite 能回放可能存在的 WAL，确保读到最新注册的用户。
+    src = sqlite3.connect(str(remote_db))
+    try:
+        src_cur = src.cursor()
+        src_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if not src_cur.fetchone():
+            print("⚠️ 远端数据库没有 users 表，跳过登录凭据同步")
+            return 0
+
+        src_cur.execute("PRAGMA table_info(users)")
+        remote_cols = {row[1] for row in src_cur.fetchall()}
+        if "password_hash" not in remote_cols:
+            print("⚠️ 远端 users 表没有 password_hash 列，跳过登录凭据同步")
+            return 0
+
+        select_parts = ["username", "password_hash"]
+        select_parts.append("created_at" if "created_at" in remote_cols else "NULL")
+        select_parts.append("last_login_at" if "last_login_at" in remote_cols else "NULL")
+        query = f"SELECT {', '.join(select_parts)} FROM users"
+        params: tuple = ()
+        if only_user:
+            query += " WHERE username = ?"
+            params = (only_user,)
+        rows = src_cur.execute(query, params).fetchall()
+    finally:
+        src.close()
+
+    cur = conn.cursor()
+    count = 0
+    for username, password_hash, created_at, last_login_at in rows:
+        # 采集服务器是凭据的权威来源：password_hash 以远端为准。
+        # created_at 取已知的较早值（保留本地已有），last_login_at 取两台机器中较近的一次登录。
+        cur.execute(
+            '''
+            INSERT INTO users (username, password_hash, created_at, last_login_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(username) DO UPDATE SET
+                password_hash = excluded.password_hash,
+                created_at    = COALESCE(users.created_at, excluded.created_at),
+                last_login_at = CASE
+                    WHEN excluded.last_login_at IS NULL THEN users.last_login_at
+                    WHEN users.last_login_at IS NULL THEN excluded.last_login_at
+                    WHEN excluded.last_login_at > users.last_login_at THEN excluded.last_login_at
+                    ELSE users.last_login_at
+                END
+            ''',
+            (username, password_hash, created_at, last_login_at),
+        )
+        count += 1
+    conn.commit()
+    return count
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scan uploads and sync new audio into local SQLite DB.")
     parser.add_argument("--uploads-dir", default="uploads", help="Path to uploads directory")
     parser.add_argument("--db-path", default="data/tasks.db", help="Path to SQLite DB")
+    parser.add_argument("--user", default=None, help="只同步指定用户名（默认扫描全部用户）")
+    parser.add_argument("--remote-db", default=None,
+                        help="远端数据库副本路径；提供后会把其中的登录凭据（用户名+密码哈希）合并进本地库")
     args = parser.parse_args()
 
     uploads_dir = Path(args.uploads_dir)
@@ -151,10 +234,21 @@ def main() -> None:
 
     total_inserted = 0
     total_updated = 0
+    cred_synced = 0
     with get_db_sync(db_path=str(db_path)) as conn:
         ensure_schema(conn)
 
-        users = sorted([p.name for p in uploads_dir.iterdir() if p.is_dir()])
+        if args.remote_db:
+            cred_synced = sync_users_from_remote(conn, args.remote_db, args.user)
+
+        if args.user:
+            target = uploads_dir / args.user
+            if not target.is_dir():
+                print(f"⚠️ 指定的用户目录不存在: {target}")
+                return
+            users = [args.user]
+        else:
+            users = sorted([p.name for p in uploads_dir.iterdir() if p.is_dir()])
         for username in users:
             inserted, updated = sync_one_user(conn, uploads_dir, username)
             total_inserted += inserted
@@ -164,6 +258,8 @@ def main() -> None:
     print(f"   - 用户数: {len(users)}")
     print(f"   - 新增任务: {total_inserted}")
     print(f"   - 更新任务: {total_updated}")
+    if args.remote_db:
+        print(f"   - 同步登录凭据(用户名+密码哈希): {cred_synced} 个用户")
 
 
 if __name__ == "__main__":

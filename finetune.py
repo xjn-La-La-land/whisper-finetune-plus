@@ -22,7 +22,8 @@ add_arg("test_data",     type=str, default="dataset/test.json",        help="测
 add_arg("base_model",    type=str, default=os.path.expanduser("whisper-base-models/whisper-large-v3"),  help="Whisper的基础模型")
 add_arg("output_dir",    type=str, default="output/",                  help="训练保存模型的路径")
 
-add_arg("warmup_steps",  type=int, default=20,      help="训练预热步数")
+add_arg("warmup_steps",  type=int,   default=0,    help="固定预热步数；>0 时会覆盖 warmup_ratio。默认 0 表示改用比例")
+add_arg("warmup_ratio",  type=float, default=0.1,  help="预热步数占总训练步数的比例（warmup_steps=0 时生效），如 0.1 表示 10%%")
 
 add_arg("logging_steps", type=int, default=10,      help="打印日志步数")
 add_arg("eval_steps",    type=int, default=20,      help="多少步数评估一次")
@@ -190,7 +191,8 @@ def main():
                                  per_device_eval_batch_size=args.per_device_eval_batch_size,  # 评估batch_size大小
                                  gradient_accumulation_steps=args.gradient_accumulation_steps,  # 训练梯度累计步数
                                  learning_rate=args.learning_rate,  # 学习率大小
-                                 warmup_steps=args.warmup_steps,  # 预热步数
+                                 warmup_steps=args.warmup_steps,  # 固定预热步数（>0 时覆盖比例）
+                                 warmup_ratio=args.warmup_ratio,  # 预热占总步数比例（warmup_steps=0 时生效）
                                  num_train_epochs=args.num_train_epochs,  # 微调训练轮数
                                  save_strategy="steps",  # 指定按照步数保存检查点
                                  eval_strategy="steps",  # 指定按照步数评估模型

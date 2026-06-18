@@ -1,5 +1,8 @@
 import os
+import sys
 import argparse
+# 本脚本已移到 scripts/，把仓库根加入 sys.path 才能 import 根目录的 tflite_export
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 同样屏蔽测试时的冗余日志
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 

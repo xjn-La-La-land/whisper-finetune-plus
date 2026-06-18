@@ -33,9 +33,8 @@
 ├── inference_controller.py --------------- 推理控制 API（含 GPU 模型热插拔）
 ├── shared_state.py ----------------------- GPU 状态 / 显存占用管理
 ├── download_whisper_models.py ------------ 下载 Whisper 基座模型
-├── tflite_export.py / test_tflite.py ----- tflite 导出与本地测试（安卓 app 用）
+├── tflite_export.py ----------------------- tflite 导出（安卓 app 用；本地测试见 scripts/test_tflite.py）
 ├── ggml_export.py --------------------------- LoRA→ggml 导出 + q5_0 量化（whisper.cpp WASM 推理用）
-├── sync_from_cloud.sh / sync_uploads_to_db.py  数据同步脚本
 ├── requirements.txt ---------------------- Web 端依赖（pip / 环境名 whisper）
 ├── env.yaml ------------------------------ 安卓 App 端环境（conda / 环境名 whisper-app）
 ├── data/
@@ -51,11 +50,11 @@
 ├── output/ ------------------------------- tflite 等导出产物
 ├── whisper-base-models/ ------------------ 下载的基座模型
 ├── utils/ -------------------------------- 工具模块（auth / db / 音频处理等）
-├── scripts/ ------------------------------ 构建脚本（build_whisper_cpp.sh：编 native + WASM）
+├── scripts/ ------------------------------ 构建与运维脚本（build_whisper_cpp.sh 编 native+WASM；数据同步 sync_*；register_model.py 补登记模型；test_tflite.py 本地测试）
 ├── vendor/ ------------------------------- 第三方子模块 whisper.cpp + 转换资产（mel_filters）
 ├── bin/ ---------------------------------- whisper.cpp native 二进制（编译生成，未入库）
 ├── deploy/ ------------------------------- 公网部署（Cloudflare 隧道配置 + 运行手册）
-├── doc/ ---------------------------------- 文档（Web.md / Adroid_app.md）
+├── doc/ ---------------------------------- 文档（Web.md / Adroid_app.md / TODO_*.md 路线图）
 └── assets/ ------------------------------- 文档图片与示例音频
 ```
 
@@ -100,4 +99,4 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 | [`doc/Web.md`](doc/Web.md) | 网页端部署（cpolar 快速验证 / Cloudflare 公网两条路径）+ 完整使用教程（采集 / 微调 / 识别） |
 | [`deploy/README.md`](deploy/README.md) | 公网部署运行手册（Cloudflare 具名隧道 + 固定域名，含 `JWT_SECRET_KEY`、开机 / 重启恢复流程） |
 | [`doc/Adroid_app.md`](doc/Adroid_app.md) | 安卓 IME app 接入（tflite 导出、ModelScope 发布、app 与服务器连接配置） |
-| `TODO_*.md` | 路线图（代码评审 / 公网部署 / whisper.cpp WASM） |
+| [`doc/TODO_*.md`](doc/) | 路线图（代码评审 / 公网部署 / whisper.cpp WASM） |

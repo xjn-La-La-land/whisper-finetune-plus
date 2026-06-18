@@ -32,7 +32,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ## 测试tflite模型进行语音识别
 
 ```bash
-python test_tflite.py \
+python scripts/test_tflite.py \
     --tflite_path output/<username>/whisper-small/whisper_model.tflite \
     --audio_path uploads/<username>/task_101.wav \
     --base_model ./whisper-base-models/whisper-small

@@ -87,7 +87,6 @@ class FinetuneRequest(BaseModel):
     epochs: int = Field(default=20, ge=1, le=200, description="训练轮数")
     batch_size: int = Field(default=8, ge=1, le=64, description="批次大小")
     accumulation_steps: int = Field(default=1, ge=1, description="梯度累积步数")
-    warmup_steps: int = Field(default=20, ge=0, description="预热步数")
     use_8bit: bool = Field(default=False, description="是否开启 8bit 量化 (省显存)")
     use_adalora: bool = Field(default=False, description="是否使用 AdaLora")
     fp16: bool = Field(default=True, description="是否使用混合精度训练")
@@ -169,6 +168,62 @@ async def _run_base_model_download(model_name: str):
         print(f"[base-model-download] {model_name} 下载异常: {e}")
 
 
+# 命令展示用：仅在含空格/shell 特殊字符时才加引号；中文、字母数字、常见路径符号无需引号。
+_SHELL_SAFE = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./-_")
+
+
+def _shell_arg(a: str) -> str:
+    # 非 ASCII（中文等，ord>127）视为安全、不加引号；只有空格/特殊字符才需要引号
+    if a and all((c in _SHELL_SAFE) or (ord(c) > 127) for c in a):
+        return a
+    return "'" + a.replace("'", "'\\''") + "'"
+
+
+def format_finetune_cmd_display(cmd: list) -> str:
+    """把命令格式化成多行、无多余引号、可直接粘贴运行的形式（反斜杠续行）。
+
+    首行 `python finetune.py`，其后每个参数单独一行，行尾用 ` \\` 续行。
+    """
+    parts = [_shell_arg(c) for c in cmd]
+    if len(parts) <= 2:
+        return " ".join(parts)
+    head = " ".join(parts[:2])                      # python finetune.py
+    body = " \\\n".join("  " + p for p in parts[2:])
+    return head + " \\\n" + body
+
+
+def build_finetune_cmd(username: str, req) -> list:
+    """构造调用 finetune.py 的命令行参数列表。
+
+    run_finetune_process（真实执行）与 /api/finetune_command（网页展示）共用本函数，
+    确保「网页显示的命令」与「后端实际运行的命令」始终一致。
+    """
+    dataset_dir = safe_join(DATASET_BASE, username)
+    # output 路径两层 safe_join：挡住 model_name=".."
+    output_dir = safe_join(safe_join(OUTPUT_BASE, username), req.model_name)
+    web_log_path = safe_join(output_dir, "training_log.jsonl")
+    base_model_path = os.path.join(BASE_MODELS_DIR, req.base_model)
+    return [
+        "python", "finetune.py",
+        f"--train_data={os.path.join(dataset_dir, 'train.json')}",
+        f"--test_data={os.path.join(dataset_dir, 'test.json')}",
+        f"--output_dir={output_dir}",
+        f"--web_log_path={web_log_path}",
+        f"--base_model={base_model_path}",
+        # 不传 warmup_steps：使用 finetune.py 默认的 warmup_ratio=0.1（按总步数的 10% 预热）
+        f"--learning_rate={req.learning_rate}",
+        f"--min_audio_len={req.min_audio_len}",
+        f"--max_audio_len={req.max_audio_len}",
+        f"--use_adalora={str(req.use_adalora)}",
+        f"--use_8bit={str(req.use_8bit)}",
+        f"--fp16={str(req.fp16)}",
+        f"--num_train_epochs={req.epochs}",
+        f"--per_device_train_batch_size={req.batch_size}",
+        f"--per_device_eval_batch_size={req.batch_size}",
+        f"--gradient_accumulation_steps={req.accumulation_steps}",
+    ]
+
+
 async def run_finetune_process(username: str, req: FinetuneRequest):
     """
     这是一个后台任务，负责实际拉起 finetune.py 进程并等待它结束。
@@ -179,10 +234,8 @@ async def run_finetune_process(username: str, req: FinetuneRequest):
       * username 作为独立参数，而不是 req.username。因为 P0-1 后 FinetuneRequest 已不含 username。
     """
     try:
-        dataset_dir = safe_join(DATASET_BASE, username)
         # output 路径必须两层 safe_join 才能挡住 model_name=".."，详见 path_safety.safe_join
-        user_output_root = safe_join(OUTPUT_BASE, username)
-        output_dir = safe_join(user_output_root, req.model_name)
+        output_dir = safe_join(safe_join(OUTPUT_BASE, username), req.model_name)
         # 日志按模型隔离：output/{username}/{model_name}/training_log.jsonl
         # 同一用户连续训练多个模型时各自独立，SSE 读取不会串流
         web_log_path = safe_join(output_dir, "training_log.jsonl")
@@ -196,29 +249,8 @@ async def run_finetune_process(username: str, req: FinetuneRequest):
         with open(web_log_path, "w", encoding="utf-8"):
             pass
 
-        # 构造执行命令
-        cmd = [
-            "python", "finetune.py",
-            f"--train_data={os.path.join(dataset_dir, 'train.json')}",
-            f"--test_data={os.path.join(dataset_dir, 'test.json')}",
-            f"--output_dir={output_dir}",
-            f"--web_log_path={web_log_path}",
-            f"--base_model={base_model_path}",
-            # 动态接收前端传来的值
-            f"--warmup_steps={req.warmup_steps}",
-            f"--learning_rate={req.learning_rate}",
-            f"--min_audio_len={req.min_audio_len}",
-            f"--max_audio_len={req.max_audio_len}",
-
-            f"--use_adalora={str(req.use_adalora)}",
-            f"--use_8bit={str(req.use_8bit)}",
-            f"--fp16={str(req.fp16)}",
-
-            f"--num_train_epochs={req.epochs}",
-            f"--per_device_train_batch_size={req.batch_size}",
-            f"--per_device_eval_batch_size={req.batch_size}",
-            f"--gradient_accumulation_steps={req.accumulation_steps}"
-        ]
+        # 构造执行命令（与 /api/finetune_command 共用 build_finetune_cmd，保证「展示=执行」）
+        cmd = build_finetune_cmd(username, req)
 
         try:
             # 使用 asyncio.create_subprocess_exec 异步拉起进程，不阻塞主线程
@@ -818,6 +850,35 @@ async def export_tflite(req: ExportRequest, background_tasks: BackgroundTasks, c
 async def export_status(current_user: str = Depends(get_current_user)):
     """当前用户所有模型的导出状态：{ model_name: { ggml:{status,message}, tflite:{status,message} } }"""
     return EXPORT_STATE.get(current_user, {})
+
+
+class FinetuneCommandRequest(BaseModel):
+    """命令预览专用：字段宽松、均有默认值，避免用户还没填完就 422。"""
+    model_name: str = ""
+    base_model: str = ""
+    learning_rate: float = 2e-4
+    epochs: int = 20
+    batch_size: int = 8
+    accumulation_steps: int = 1
+    use_adalora: bool = False
+    use_8bit: bool = False
+    fp16: bool = True
+    min_audio_len: float = 0.5
+    max_audio_len: float = 30.0
+
+
+@router.post("/api/finetune_command")
+async def finetune_command(req: FinetuneCommandRequest, current_user: str = Depends(get_current_user)):
+    """返回后端将要执行的 finetune.py 命令（与真实执行共用 build_finetune_cmd），
+    供网页端展示、复制到终端手动运行。仅预览：不校验重名、不启动训练。"""
+    raw_name = (req.model_name or "").strip()
+    # 预览不报错：名称为空或非法时用占位符，仍展示完整命令结构
+    req.model_name = raw_name if (raw_name and is_valid_model_name(raw_name)) else "MODEL_NAME"
+    if not (req.base_model or "").strip():
+        req.base_model = "BASE_MODEL"
+    cmd = build_finetune_cmd(current_user, req)
+    # 多行、无多余引号、反斜杠续行，可直接粘贴到终端运行
+    return {"command": format_finetune_cmd_display(cmd), "argv": cmd}
 
 
 # 模型检查

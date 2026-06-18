@@ -939,6 +939,57 @@ export default {
             }
         };
 
+        // --- 后端命令预览：显示后端将执行的 finetune.py 命令，可复制到终端手动运行 ---
+        const finetuneCommand = ref("");
+        const commandCopied = ref(false);
+        let commandTimer = null;
+
+        const fetchFinetuneCommand = async () => {
+            try {
+                const res = await apiFetch('/api/finetune_command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model_name: (finetuneParams.value.model_name || '').trim(),
+                        base_model: finetuneParams.value.base_model,
+                        learning_rate: finetuneParams.value.learning_rate,
+                        epochs: finetuneParams.value.epochs,
+                        accumulation_steps: finetuneParams.value.gradient_accumulation_steps,
+                        batch_size: finetuneParams.value.batch_size,
+                        use_adalora: finetuneParams.value.use_adalora,
+                        use_8bit: finetuneParams.value.use_8bit,
+                        fp16: finetuneParams.value.fp16,
+                        min_audio_len: finetuneParams.value.min_audio_len,
+                        max_audio_len: finetuneParams.value.max_audio_len
+                    })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    finetuneCommand.value = data.command || "";
+                }
+            } catch (e) {
+                // 预览失败不打扰用户，保留上一次结果
+            }
+        };
+
+        // 防抖：参数频繁变化（拖滑块）时只在停顿后请求一次
+        const scheduleCommandRefresh = () => {
+            if (commandTimer) clearTimeout(commandTimer);
+            commandTimer = setTimeout(fetchFinetuneCommand, 400);
+        };
+        watch(finetuneParams, scheduleCommandRefresh, { deep: true, immediate: true });
+
+        const copyFinetuneCommand = async () => {
+            if (!finetuneCommand.value) return;
+            try {
+                await navigator.clipboard.writeText(finetuneCommand.value);
+                commandCopied.value = true;
+                setTimeout(() => { commandCopied.value = false; }, 1500);
+            } catch (e) {
+                await dialog.alert('复制失败，请手动选中命令文本复制', { variant: 'warning' });
+            }
+        };
+
         return {
             chartRef,
             datasetParams,
@@ -986,7 +1037,10 @@ export default {
             formatTime,
             loadUserModels,
             viewModelCurve,
-            handleDeleteModel
+            handleDeleteModel,
+            finetuneCommand,
+            commandCopied,
+            copyFinetuneCommand
         };
 
     }
