@@ -6,10 +6,12 @@ REMOTE_USER="xiejianan"
 # 采集服务器公网 IP
 REMOTE_IP="40.83.91.242"
 SSH_KEY="$HOME/.ssh/halo_key.pem"
-# 项目在采集服务器上的绝对路径
+# 项目在采集服务器（halo）上的绝对路径（远端用户固定是 xiejianan）
 REMOTE_DIR="/home/xiejianan/whisper-finetune-plus"
-# 本地项目绝对路径
-LOCAL_DIR="/home/xiejianan/whisper-finetune-plus"
+# 本地项目根目录：自动取「本脚本所在 scripts/ 的上一级」，
+# 这样在任意机器（WSL / Featurize 等不同用户名）上都能直接用，无需手改路径
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_DIR="$(dirname "$SCRIPT_DIR")"
 SSH_OPTS="-i ${SSH_KEY} -p 22"
 # 远端数据库副本的本地临时目录（用于同步登录凭据，用完即删）
 REMOTE_DB_DIR="${LOCAL_DIR}/data/.remote_db_tmp"
