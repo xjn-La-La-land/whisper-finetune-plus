@@ -3,7 +3,11 @@ import argparse
 import os
 import re
 import sqlite3
+import sys
 from pathlib import Path
+
+# 本脚本在 scripts/ 下，把仓库根加入 sys.path 才能 import 根目录的 utils 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 AUDIO_PATTERN = re.compile(r"^task_(\d+)\.wav$")
 
