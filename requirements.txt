@@ -58,11 +58,14 @@ torch==2.8.0+cu128
 # --- flash-attn —— 直接钉官方预编译 wheel，绕开 PyPI sdist 的源码编译（1~2 小时）---
 #   官方 v2.8.3 wheel 用 CUDA 12.9 构建，含 sm_80/90/100/120 → 4090 与 Blackwell 都能跑。
 #   inference_controller 启动时自动 try import；没装则回退 PyTorch 内置 SDPA（零依赖、
-#   跨架构兼容），所以这行如装不上可以直接注释掉，功能不受影响。
-#   wheel 名里的 cxx11abiTRUE 必须和 torch 的 ABI 对上：torch>=2.7 的 linux cuda wheel
-#   都是 TRUE（自查：python -c "import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI)"）。
-#   换 Python/torch 小版本时去 https://github.com/Dao-AILab/flash-attention/releases 挑对应 wheel。
-flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
+#   跨架构兼容），所以这几行如装不上可以直接注释掉，功能不受影响。
+#   用 environment markers 按 Python 版本自动选 wheel，覆盖 3.9–3.13，无需手动改文件。
+#   绑定条件：torch==2.8.x + CUDA 12.x + Linux x86_64；换 torch 大版本时需同步更新 URL。
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp39-cp39-linux_x86_64.whl   ; python_version == "3.9"
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp310-cp310-linux_x86_64.whl  ; python_version == "3.10"
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl  ; python_version == "3.11"
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl  ; python_version == "3.12"
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp313-cp313-linux_x86_64.whl  ; python_version == "3.13"
 
 # ----------------------------------------------------------------------------
 # 其他 GPU / 可选组件（按需，不影响上面的默认安装）
