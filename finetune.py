@@ -47,6 +47,7 @@ add_arg("local_files_only", type=bool, default=True, help="是否只在本地加
 add_arg("num_train_epochs", type=int, default=20,      help="训练的轮数")
 add_arg("early_stopping_patience", type=int, default=5, help="早停耐心：连续多少次评估 CER 没改善就停（按 eval_steps 计；0=关闭）")
 add_arg("generation_max_length",   type=int, default=128, help="评估时生成解码的最大长度（句子短，128 足够，越小评估越快）")
+add_arg("attn_implementation",     type=str, default="sdpa", choices=["sdpa", "eager", "flash_attention_2"], help="注意力实现：sdpa(默认,稳;支持fp32)/flash_attention_2(快但与评估时 generate 的 fp32 输入冲突)/eager")
 add_arg("language", type=str, default="Chinese", help="设置语言，可全称也可简写，如果为None则训练的是多语言")
 add_arg("task",     type=str, default="transcribe", choices=['transcribe', 'translate'], help="模型的任务")
 add_arg("augment_config_path",         type=str, default=None, help="数据增强配置文件路径")
@@ -124,13 +125,18 @@ def main():
     if ddp:
         device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
 
-    # 自动选择 attention 实现：有 flash-attn 就用 flash_attention_2，否则 sdpa
-    # （sdpa 是 PyTorch 2.x 内置的 SDPA，零依赖、跨架构、对所有 GPU 都原生支持）
-    try:
-        import flash_attn  # noqa: F401
-        attn_impl = "flash_attention_2"
-    except ImportError:
-        attn_impl = "sdpa"
+    # attention 实现：默认 sdpa。不要默认 flash_attention_2——它在
+    # 「fp16 训练 + prepare_model_for_kbit_training 把 layernorm 升到 fp32 + 评估时
+    # predict_with_generate 调 generate()(无 autocast，hidden states 是 fp32)」这套组合下会报
+    # "FlashAttention only support fp16 and bf16"。sdpa 支持 fp32、零依赖、跨架构，作默认更稳，
+    # 对 whisper 这种小模型速度差异可忽略。需要更快可显式 --attn_implementation flash_attention_2。
+    attn_impl = args.attn_implementation
+    if attn_impl == "flash_attention_2":
+        try:
+            import flash_attn  # noqa: F401
+        except ImportError:
+            print("[finetune] 未安装 flash_attn，回退 sdpa")
+            attn_impl = "sdpa"
     print(f"[finetune] 使用 attention 实现: {attn_impl}")
 
     # 获取模型
