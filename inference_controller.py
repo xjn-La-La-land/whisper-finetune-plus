@@ -58,14 +58,29 @@ print(f"[inference] 使用 attention 实现: {ATTN_IMPLEMENTATION}")
 
 
 def resolve_lora_base_model_path(model_path: str):
-    """如果是 LoRA 目录，返回其 base_model_name_or_path；否则返回 None。"""
+    """如果是 LoRA 目录，返回其 base_model（已重映射到本机路径）；否则返回 None。
+    """
     adapter_config_path = os.path.join(model_path, "adapter_config.json")
     if not os.path.isfile(adapter_config_path):
         return None
 
     with open(adapter_config_path, "r", encoding="utf-8") as f:
         adapter_config = json.load(f)
-    return adapter_config.get("base_model_name_or_path")
+    base_model_path = adapter_config.get("base_model_name_or_path")
+    if not base_model_path:
+        return None
+
+    # 本机训练的模型：记录的绝对路径在本机存在 → 原样使用
+    if os.path.isdir(base_model_path):
+        return base_model_path
+
+    # 跨机同步的模型：按 basename 重映射到本机 whisper-base-models/<name>
+    local_base = os.path.join(BASE_MODELS_DIR, os.path.basename(base_model_path.rstrip("/")))
+    if os.path.isdir(local_base):
+        print(f"[lora] base_model 路径重映射: {base_model_path} -> {local_base}")
+        return local_base
+
+    return base_model_path
 
 
 def resolve_base_model_paths():
