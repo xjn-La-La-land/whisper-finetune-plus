@@ -36,9 +36,22 @@
    python download_whisper_models.py whisper-small      # 按需指定，这里只下 small
    ```
 
-5. **启动后端**：在项目根目录启动 FastAPI 服务，绑本机 `8000` 端口（两种穿透方式都从本机连它）
+5. **配置 ModelScope 凭据**：凭据放在项目根目录的 `.env`（已被 `.gitignore` 忽略，**真实 token 不入库**），从模板复制后填入真实值：
 
    ```bash
+   cp .env.example .env
+   # 编辑 .env，填入真实值（仓库已提供占位模板）
+   ```
+
+   `.env` 里需要的变量（只列变量名，真实值只写进 `.env`、勿入文档/仓库）：
+
+   - `MODELSCOPE_TOKEN`：ModelScope 访问令牌
+   - `MODELSCOPE_LORA_REPO`：LoRA 上传目标仓库 `<owner>/<repo>`；落到 `<用户名>/<模型名>/` 子目录，不存在会自动创建
+
+6. **启动后端**：先加载 `.env`，再启动 FastAPI 服务，绑本机 `8000` 端口（两种穿透方式都从本机连它）
+
+   ```bash
+   set -a && source .env && set +a      # 把 .env 里的变量导入当前 shell 环境
    uvicorn main:app --host 127.0.0.1 --port 8000
    ```
 

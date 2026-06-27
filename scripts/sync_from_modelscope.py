@@ -1,77 +1,65 @@
 #!/usr/bin/env python3
-"""从 ModelScope 下载 LoRA 权重，并注册到本地数据库。
+"""从 ModelScope 下载 LoRA 权重（网页端「上传到 ModelScope」的逆操作）。
 
-把训练好、上传到 ModelScope 的 checkpoint 拉到当前机器的
-output/<username>/<model_name>/checkpoint-final/，然后写入数据库，
-使模型在网页端可见。
+把上传到 ModelScope 的 LoRA 拉到当前机器的 output/<username>/<model_name>/checkpoint-final/。
+本脚本**只负责下载**；让模型出现在网页端的「注册到数据库」一步，下载完到网页端
+「管理微调好的模型 → 刷新」即可完成——/api/rescan_models 会扫 output/ 把新模型补登记。
+（注意：刷新只登记当前登录用户自己的模型，且需 web 服务跑在同一台机、用同一个 output/ 与 data/tasks.db。）
+
+仓库组织约定（与网页端 /api/upload_lora 对称：所有用户共用一个仓库）
+----------------------------------------------------------------
+  所有用户共用一个仓库（环境变量 MODELSCOPE_LORA_REPO），每个模型放在 <用户名>/<模型名>/
+  子目录下。下载默认就按这个布局拉 <用户名>/<模型名>/ 并摊平进 checkpoint-final/。
+  · --repo-id 不传时默认取环境变量 MODELSCOPE_LORA_REPO（可先 source .env 让它生效）。
+  · 要拉别的布局：用 --subdir 显式指定仓库内子目录；--subdir "" 表示仓库根
+    （兼容早期“文件直接放仓库根”的旧仓库）。
 
 用法
 ----
-  python scripts/sync_from_modelscope.py \\
-      --username 小崔 \\
-      --model-name cui-v1 \\
-      --repo-id smellyCat99/whisper-base-lora-xiaocui
+  # 默认（共享仓库，从 <MODELSCOPE_LORA_REPO>/<用户名>/<模型名>/ 拉回）：
+  set -a && source .env && set +a     # 让 MODELSCOPE_LORA_REPO 生效
+  python scripts/sync_from_modelscope.py --username 小崔 --model-name whisper-base-lora-v2
+  # 下载完，到网页端「管理微调好的模型 → 刷新」即可看到该模型
+
+  # 指定仓库 / 旧布局（文件在仓库根）：
+  python scripts/sync_from_modelscope.py --username 小崔 --model-name cui-v1 \\
+      --repo-id smellyCat99/whisper-base-lora-xiaocui --subdir ""
 
 参数
 ----
   --username      网页端登录用户名（对应 output/<username>/）
   --model-name    模型名（对应 output/<username>/<model_name>/）
-  --repo-id       ModelScope 仓库 ID，格式为 <owner>/<repo>
+  --repo-id       ModelScope 仓库 ID <owner>/<repo>；默认取环境变量 MODELSCOPE_LORA_REPO
+  --subdir        仓库内子目录；默认 <用户名>/<模型名>；传 "" 表示仓库根
   --output-dir    可选，覆盖默认的 output/ 根目录
-  --db-path       可选，覆盖默认的 data/tasks.db 路径
   --force         若 checkpoint-final 已存在则先删除再下载
-  --no-register   只下载，不写数据库
 """
 import argparse
 import os
 import shutil
-import sqlite3
-import sys
-import time
-from contextlib import closing
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# 推理所需文件；跳过体积最大的 optimizer.pt（仅训练续训用）
-INFERENCE_PATTERNS = [
-    "adapter_config.json",
-    "adapter_model.safetensors",
-    "preprocessor_config.json",
-    "trainer_state.json",
-    "training_args.bin",
-]
 
 
 def is_safe_name(name: str) -> bool:
     return bool(name) and name.strip() == name and not any(c in name for c in ("/", "\\")) and ".." not in name
 
 
-def ensure_models_schema(conn: sqlite3.Connection) -> None:
-    cur = conn.cursor()
-    cur.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS models (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            model_name TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            is_published INTEGER DEFAULT 0,
-            version_tag TEXT,
-            UNIQUE(username, model_name)
-        )
-        '''
-    )
-    cur.execute("PRAGMA table_info(models)")
-    cols = {row[1] for row in cur.fetchall()}
-    if "is_published" not in cols:
-        cur.execute("ALTER TABLE models ADD COLUMN is_published INTEGER DEFAULT 0")
-    if "version_tag" not in cols:
-        cur.execute("ALTER TABLE models ADD COLUMN version_tag TEXT")
-    conn.commit()
+def normalize_subdir(raw, username: str, model_name: str) -> str:
+    """计算仓库内子目录：--subdir 未给时默认 <用户名>/<模型名>（与网页端上传布局一致）；
+    给空串则为仓库根（返回 ""）。"""
+    sub = f"{username}/{model_name}" if raw is None else raw
+    sub = sub.strip().strip("/")
+    if "\\" in sub or ".." in sub.split("/"):
+        raise SystemExit("❌ --subdir 含非法路径（不能有 \\ 或 ..）")
+    return sub
 
 
-def download_checkpoint(repo_id: str, target_dir: str) -> None:
+# 续训状态文件（体积大、仅续训用），下载时一律跳过（上传时默认也不传）
+_IGNORE_FILE_PATTERN = ["optimizer\\.pt", "rng_state\\.pth", "scaler\\.pt", "scheduler\\.pt"]
+
+
+def download_checkpoint(repo_id: str, target_dir: str, subdir: str = "") -> None:
     try:
         from modelscope.hub.snapshot_download import snapshot_download
     except ImportError as exc:
@@ -79,55 +67,71 @@ def download_checkpoint(repo_id: str, target_dir: str) -> None:
             "未找到 modelscope，请先激活对应 conda 环境：conda activate whisper"
         ) from exc
 
-    print(f"📥 从 ModelScope 下载：{repo_id}")
+    src_label = f"{repo_id}/{subdir}/" if subdir else repo_id
+    print(f"📥 从 ModelScope 下载：{src_label}")
     print(f"   目标目录：{target_dir}")
-    snapshot_download(
-        model_id=repo_id,
-        local_dir=target_dir,
-        ignore_file_pattern=["optimizer\\.pt", "rng_state\\.pth", "scaler\\.pt", "scheduler\\.pt"],
-    )
-    print("   下载完成")
 
-
-def register_in_db(username: str, model_name: str, db_path: str) -> None:
-    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-    now_ts = int(time.time())
-    with closing(sqlite3.connect(db_path)) as conn:
-        ensure_models_schema(conn)
-        existed = conn.execute(
-            "SELECT 1 FROM models WHERE username = ? AND model_name = ? LIMIT 1",
-            (username, model_name),
-        ).fetchone() is not None
-        conn.execute(
-            '''
-            INSERT INTO models (username, model_name, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(username, model_name)
-            DO UPDATE SET updated_at = excluded.updated_at
-            ''',
-            (username, model_name, now_ts, now_ts),
+    if not subdir:
+        # 子目录为空 = 仓库根：直接下到 checkpoint-final（兼容旧的“文件放仓库根”布局）
+        snapshot_download(
+            model_id=repo_id,
+            local_dir=target_dir,
+            ignore_file_pattern=_IGNORE_FILE_PATTERN,
         )
-        conn.commit()
-    action = "更新" if existed else "新增"
-    print(f"✅ 数据库{action}记录：username={username}, model_name={model_name}")
+        print("   下载完成")
+        return
+
+    # 指定了子目录：只拉 <subdir>/* 到临时 staging，再把该子目录内容摊平进 checkpoint-final
+    staging = os.path.join(os.path.dirname(target_dir), ".ms_download_tmp")
+    if os.path.isdir(staging):
+        shutil.rmtree(staging)
+    try:
+        snapshot_download(
+            model_id=repo_id,
+            local_dir=staging,
+            allow_patterns=[f"{subdir}/*"],
+            ignore_file_pattern=_IGNORE_FILE_PATTERN,
+        )
+        src = os.path.join(staging, subdir)
+        if not os.path.isdir(src) or not os.listdir(src):
+            raise SystemExit(
+                f"❌ 仓库 {repo_id} 里没有子目录 {subdir}/（或为空）。\n"
+                f"   确认上传时用的子目录名，或旧布局请加 --subdir \"\" 拉仓库根。"
+            )
+        # 摊平：staging/<subdir>/* → checkpoint-final/*（已存在则覆盖）
+        shutil.copytree(src, target_dir, dirs_exist_ok=True)
+    finally:
+        if os.path.isdir(staging):
+            shutil.rmtree(staging)
+    print("   下载完成")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="从 ModelScope 下载 LoRA 权重并注册到本地数据库",
+        description="从 ModelScope 下载 LoRA 权重（注册由网页端「刷新」完成）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--username", required=True, help="网页端用户名（对应 output/<username>/）")
     parser.add_argument("--model-name", required=True, help="模型名（对应 output/<username>/<model_name>/）")
-    parser.add_argument("--repo-id", required=True, help="ModelScope 仓库 ID，格式：<owner>/<repo>")
+    parser.add_argument("--repo-id", default=None,
+                        help="ModelScope 仓库 ID <owner>/<repo>；不传则默认取环境变量 MODELSCOPE_LORA_REPO")
+    parser.add_argument("--subdir", default=None,
+                        help='仓库内子目录；默认 <用户名>/<模型名>（与网页端上传一致）；传 --subdir "" 表示仓库根')
     parser.add_argument("--output-dir", default=os.path.join(PROJECT_ROOT, "output"), help="模型输出根目录")
-    parser.add_argument("--db-path", default=os.path.join(PROJECT_ROOT, "data", "tasks.db"), help="SQLite 数据库路径")
     parser.add_argument("--force", action="store_true", help="若 checkpoint-final 已存在则先删除再重新下载")
-    parser.add_argument("--no-register", action="store_true", help="只下载，不写数据库")
     args = parser.parse_args()
 
     if not is_safe_name(args.username) or not is_safe_name(args.model_name):
         raise SystemExit("❌ 用户名或模型名含非法字符（不能有 / \\ .. 或首尾空格）")
+
+    repo_id = args.repo_id or os.environ.get("MODELSCOPE_LORA_REPO")
+    if not repo_id:
+        raise SystemExit(
+            "❌ 未指定仓库：请用 --repo-id 传入，或设置环境变量 MODELSCOPE_LORA_REPO\n"
+            "   （例如先执行  set -a && source .env && set +a）"
+        )
+
+    subdir = normalize_subdir(args.subdir, args.username, args.model_name)
 
     checkpoint_dir = os.path.join(args.output_dir, args.username, args.model_name, "checkpoint-final")
 
@@ -137,7 +141,7 @@ def main() -> None:
 
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    download_checkpoint(args.repo_id, checkpoint_dir)
+    download_checkpoint(repo_id, checkpoint_dir, subdir)
 
     # 验证关键文件存在
     required = ["adapter_config.json", "adapter_model.safetensors"]
@@ -145,11 +149,8 @@ def main() -> None:
     if missing:
         raise SystemExit(f"❌ 下载后仍缺少关键文件：{missing}，请检查 ModelScope 仓库内容")
 
-    if not args.no_register:
-        register_in_db(args.username, args.model_name, args.db_path)
-
-    print(f"\n模型目录：{checkpoint_dir}")
-    print("刷新网页端即可看到该模型（默认未发布，可在页面上发布后用于识别）。")
+    print(f"\n✅ 下载完成，模型目录：{checkpoint_dir}")
+    print("   到网页端「管理微调好的模型 → 刷新」即可扫描登记并看到该模型。")
 
 
 if __name__ == "__main__":

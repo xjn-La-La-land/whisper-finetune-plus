@@ -2,6 +2,7 @@
 import os
 import gc
 import json
+import time
 import shutil
 import asyncio
 import sqlite3
@@ -142,6 +143,63 @@ async def resolve_user_model_path(username: str):
 @router.get("/api/user_models")
 async def get_user_models(current_user: str = Depends(get_current_user)):
     return {"models": await resolve_user_model_path(current_user)}
+
+
+@router.post("/api/rescan_models")
+async def rescan_models(current_user: str = Depends(get_current_user)):
+    """扫描 output/<user>/ 下「已训练完成但还没登记进库」的模型并补登记，使在终端直接用
+    finetune.py 训练的模型也能出现在「管理微调好的模型」列表（网页端发起的训练在
+    finetune_controller 收尾时已自动登记，无需扫描——本接口面向终端训练）。
+
+    判定口径与 resolve_user_model_path 完全一致：目录名合法 + 存在 checkpoint-final/
+    才算一个可用模型（训练中途的模型还没写出 checkpoint-final，自然不会被误登记）。
+
+    幂等：只新增库里缺失的行；已在库的模型一律不动（不刷新 updated_at，避免列表重排）。
+    新模型默认未发布（is_published 取列默认 0），与网页端训练收尾的 _upsert_user_model 一致。
+    """
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    if not os.path.isdir(user_output_root):
+        # 该用户还没有任何训练产物目录
+        return {"added": [], "added_count": 0, "scanned": 0}
+
+    # 1) 磁盘上「训练完成」的模型：output/<user>/<model_name>/checkpoint-final/ 存在
+    on_disk = []
+    for entry in os.scandir(user_output_root):
+        if not entry.is_dir():
+            continue
+        model_name = entry.name
+        # 与前端 / delete_model 同款白名单，非法目录名静默跳过
+        # （不让一条脏目录名让整个接口 400）
+        if not is_valid_model_name(model_name):
+            continue
+        checkpoint_final = safe_join(user_output_root, model_name, "checkpoint-final")
+        if os.path.isdir(checkpoint_final):
+            on_disk.append(model_name)
+
+    # 2) 已在库的模型名
+    async with get_db() as conn:
+        cursor = await conn.execute(
+            'SELECT model_name FROM models WHERE username = ?',
+            (current_user,)
+        )
+        existing = {row[0] for row in await cursor.fetchall()}
+
+        # 3) 只补登记库里缺失的（ON CONFLICT DO NOTHING 兜底并发下的重复插入）
+        added = sorted(m for m in on_disk if m not in existing)
+        if added:
+            now_ts = int(time.time())
+            for model_name in added:
+                await conn.execute(
+                    '''
+                    INSERT INTO models (username, model_name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(username, model_name) DO NOTHING
+                    ''',
+                    (current_user, model_name, now_ts, now_ts)
+                )
+            await conn.commit()
+
+    return {"added": added, "added_count": len(added), "scanned": len(on_disk)}
 
 
 class DeleteModelRequest(BaseModel):

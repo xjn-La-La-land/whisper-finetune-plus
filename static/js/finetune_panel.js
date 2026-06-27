@@ -34,7 +34,7 @@ export default {
         const deletingModel = ref("");       // 正在删除的模型名（控制按钮 spinner / 禁用）
         // 模型导出（ggml/tflite）状态：{ model_name: { ggml:{status,message}, tflite:{status} } }；轮询填充
         const exportStates = ref({});
-        const publishingModel = ref("");     // 正在发布的模型名
+        const uploadingModel = ref("");      // 正在上传 LoRA 的模型名
         let exportPollTimer = null;
 
         // --- 模型名称实时校验状态 ---
@@ -473,6 +473,39 @@ export default {
                 userModels.value = [];
             } finally {
                 isLoadingModels.value = false;
+            }
+        };
+
+        // 点「刷新」：先扫描磁盘把「在终端用 finetune.py 训练好、但还没登记进库」的模型补登记，
+        // 再重新拉列表。这样命令行训练的模型也能出现在这里（网页端训练会自动登记，无需扫描）。
+        const refreshUserModels = async () => {
+            if (!props.currentUser) {
+                userModels.value = [];
+                return;
+            }
+            if (isLoadingModels.value) return;   // 扫描进行中不重复触发
+            let added = [];
+            isLoadingModels.value = true;
+            try {
+                const res = await apiFetch('/api/rescan_models', { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    added = Array.isArray(data.added) ? data.added : [];
+                } else {
+                    console.warn(`扫描新模型失败 HTTP ${res.status}`);
+                }
+            } catch (e) {
+                // 扫描失败不阻断：仍照常刷新一次列表
+                console.warn("扫描新模型请求失败（不阻断刷新）", e);
+            } finally {
+                isLoadingModels.value = false;
+            }
+            await loadUserModels();   // 重新拉列表（含磁盘校验）
+            if (added.length) {
+                await dialog.alert(
+                    `扫描到 ${added.length} 个新模型并已加入列表：\n${added.join('、')}`,
+                    { variant: 'success', title: '🔍 已发现新模型' }
+                );
             }
         };
 
@@ -918,24 +951,28 @@ export default {
             }
         };
 
-        // 发布已训练好的模型（复用 /api/publish_model；需先有 TFLite）
-        const publishExistingModel = async (model) => {
-            if (!model.has_tflite) { await dialog.alert('请先「导出 TFLite」，再发布到 ModelScope', { variant: 'warning' }); return; }
-            const ok = await dialog.confirm(`将「${model.model_name}」发布到 ModelScope？发布后安卓客户端会同步更新。`);
+        // 上传该模型的 LoRA 权重到 ModelScope（共享仓库 <用户名>/<模型名>/ 子目录，见后端 /api/upload_lora）
+        const uploadLoraToModelscope = async (model) => {
+            if (!model || !model.model_name) return;
+            if (isTraining.value) { await dialog.alert('训练进行中，暂时无法上传，请等训练结束。', { variant: 'warning' }); return; }
+            const ok = await dialog.confirm(`将「${model.model_name}」的 LoRA 权重上传到 ModelScope？（用于备份 / 换机同步）`);
             if (!ok) return;
-            publishingModel.value = model.model_name;
+            uploadingModel.value = model.model_name;
             try {
-                const res = await apiFetch('/api/publish_model', {
+                const res = await apiFetch('/api/upload_lora', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ model_name: model.model_name }),
                 });
                 const data = await res.json();
-                if (res.ok) { await dialog.alert('发布成功！客户端现在可以检测到更新了。', { variant: 'success', title: '🚀 发布成功' }); await loadUserModels(); }
-                else { await dialog.alert('发布失败：' + data.detail, { variant: 'danger' }); }
+                if (res.ok) {
+                    await dialog.alert(`LoRA 已上传到 ModelScope：\n${data.repo_id}/${data.path_in_repo}/`, { variant: 'success', title: '☁️ 上传成功' });
+                } else {
+                    await dialog.alert('上传失败：' + (data.detail || '未知错误'), { variant: 'danger' });
+                }
             } catch (e) {
-                await dialog.alert('网络请求失败，无法发布模型', { variant: 'danger' });
+                await dialog.alert('网络请求失败，无法上传 LoRA', { variant: 'danger' });
             } finally {
-                publishingModel.value = "";
+                uploadingModel.value = "";
             }
         };
 
@@ -1031,11 +1068,12 @@ export default {
             exportStatusOf,
             isExporting,
             exportError,
-            publishingModel,
+            uploadingModel,
             exportModel,
-            publishExistingModel,
+            uploadLoraToModelscope,
             formatTime,
             loadUserModels,
+            refreshUserModels,
             viewModelCurve,
             handleDeleteModel,
             finetuneCommand,

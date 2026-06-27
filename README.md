@@ -50,7 +50,7 @@
 ├── output/ ------------------------------- tflite 等导出产物
 ├── whisper-base-models/ ------------------ 下载的基座模型
 ├── utils/ -------------------------------- 工具模块（auth / db / 音频处理等）
-├── scripts/ ------------------------------ 构建与运维脚本（build_whisper_cpp.sh 编 native+WASM；数据同步 sync_*；register_model.py 补登记模型；test_tflite.py 本地测试）
+├── scripts/ ------------------------------ 构建与运维脚本（build_whisper_cpp.sh 编 native+WASM；数据同步 sync_*；test_tflite.py 本地测试）
 ├── vendor/ ------------------------------- 第三方子模块 whisper.cpp + 转换资产（mel_filters）
 ├── bin/ ---------------------------------- whisper.cpp native 二进制（编译生成，未入库）
 ├── deploy/ ------------------------------- 公网部署（Cloudflare 隧道配置 + 运行手册）

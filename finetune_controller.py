@@ -748,6 +748,91 @@ async def publish_model(
     }
 
 
+# LoRA 上传到 ModelScope 时排除的文件：
+# ModelScope 快照下载留下的本地 bookkeeping + 体积大的续训状态文件。
+_LORA_UPLOAD_IGNORE = [
+    ".msc", ".mv", ".cache", ".cache/*",
+    "._____temp", "._____temp/*",
+    ".git", ".git/*", "*.lock",
+    "optimizer.pt", "rng_state*.pth", "scaler.pt", "scheduler.pt", "scheduler.bin",
+]
+
+
+class UploadLoraRequest(BaseModel):
+    model_name: str
+
+
+@router.post("/api/upload_lora")
+async def upload_lora(
+    req: UploadLoraRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """把某个微调模型的 **LoRA 权重**（checkpoint-final 里的 adapter）上传到 ModelScope。
+
+    与 TFLite「发布」(/api/publish_model) 不同：
+      · 传的是原始 adapter（不合并、不转 TFLite），给训练侧换机同步 / 续训 / 备份用；
+      · 落到共享仓库 MODELSCOPE_LORA_REPO 的 <用户名>/<模型名>/ 子目录
+        （一个仓库、按 用户/模型 分目录；中文用户名作子目录已验证可用）；
+      · 不改 is_published / version_tag（那套是 TFLite 给安卓客户端轮询用的）。
+    """
+    model_name = req.model_name.strip()
+    if not is_valid_model_name(model_name):
+        raise HTTPException(status_code=400, detail="模型名称非法")
+
+    # 两层 safe_join：先到 user 根，再 join model_name（与 delete_model 同款防越权）
+    user_output_root = safe_join(OUTPUT_BASE, current_user)
+    model_dir = safe_join(user_output_root, model_name)
+    checkpoint = safe_join(model_dir, "checkpoint-final")
+    adapter_cfg = safe_join(checkpoint, "adapter_config.json")
+    adapter_bin = safe_join(checkpoint, "adapter_model.safetensors")
+    if not (os.path.isdir(checkpoint) and os.path.exists(adapter_cfg) and os.path.exists(adapter_bin)):
+        raise HTTPException(status_code=400, detail="该模型缺少 checkpoint-final 或 LoRA 权重文件，无法上传")
+
+    if not HubApi:
+        raise HTTPException(status_code=500, detail="环境未安装 modelscope SDK，请先安装：pip install modelscope")
+
+    ms_token = os.environ.get("MODELSCOPE_TOKEN")
+    ms_repo = os.environ.get("MODELSCOPE_LORA_REPO")
+    if not ms_token or not ms_repo:
+        raise HTTPException(
+            status_code=400,
+            detail="缺少 ModelScope 配置。请设置环境变量 MODELSCOPE_TOKEN 和 MODELSCOPE_LORA_REPO"
+        )
+
+    path_in_repo = f"{current_user}/{model_name}"
+    try:
+        api = HubApi()
+        api.login(ms_token)  # 同步、很快
+        # 仓库不存在则创建（首次上传自动建），已存在用 exist_ok 兜住不报错
+        await asyncio.to_thread(
+            api.create_repo,
+            repo_id=ms_repo, visibility="public", repo_type="model", exist_ok=True,
+        )
+        print(f"[{current_user}] 正在上传 LoRA 到 ModelScope: {ms_repo}/{path_in_repo} ...")
+        await asyncio.to_thread(
+            api.upload_folder,
+            repo_id=ms_repo,
+            folder_path=checkpoint,
+            path_in_repo=path_in_repo,
+            commit_message=f"upload {current_user}/{model_name} LoRA (checkpoint-final)",
+            ignore_patterns=_LORA_UPLOAD_IGNORE,
+        )
+        print(f"[{current_user}] LoRA 上传成功: {path_in_repo}")
+    except Exception as e:
+        # 与 publish_model 一致：脱敏，避免 SDK 在异常文本/URL 里回显 token
+        err_text = str(e)
+        if ms_token:
+            err_text = err_text.replace(ms_token, "***")
+        print(f"[{current_user}] LoRA 上传失败: {err_text}")
+        raise HTTPException(status_code=500, detail=f"上传至 ModelScope 失败: {err_text}")
+
+    return {
+        "message": "LoRA 权重已上传至 ModelScope",
+        "repo_id": ms_repo,
+        "path_in_repo": path_in_repo,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 模型导出管理（ggml / tflite）—— 给已训练模型按需补生成产物，供用户精细管理（方案 A）。
 # 导出耗时（merge + 转换 + 量化，约 1-2 分钟），用「后台任务 + 状态字典 + 前端轮询」；
