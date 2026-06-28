@@ -1340,7 +1340,7 @@
                     <div v-for="item in transcriptItems" :key="item.id" class="transcript-card rounded-xl border border-blue-900/50 px-3 py-2.5 transition hover:border-blue-700/60">
                         <div class="flex items-start gap-2.5">
                             <div class="flex-1 min-w-0">
-                                <div class="text-[10px] text-blue-300/80 font-mono mb-0.5">
+                                <div v-if="item.start != null && item.end != null" class="text-[10px] text-blue-300/80 font-mono mb-0.5">
                                     [{{ item.start.toFixed(1) }}s - {{ item.end.toFixed(1) }}s]
                                 </div>
                                 <p class="transcript-text text-base md:text-lg text-gray-50 leading-snug break-words font-semibold">{{ item.text }}</p>
@@ -1474,7 +1474,7 @@
         </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=2.12"></script>
+    <script type="module" src="/static/js/app.js?v=2.13"></script>
     <script src="/static/js/login_parallax.js?v=2" defer></script>
 </body>
 </html>
