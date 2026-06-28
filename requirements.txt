@@ -49,14 +49,11 @@ tqdm==4.67.1
 # ============================================================================
 
 # --- torch —— 统一钉 cu128（不是 cu130！）---
-#   cu128 同时覆盖 RTX 4090(Ada, sm_89) 与 RTX 50 系/Blackwell(sm_120)，本仓库两台
-#   机器（Featurize 4090 生产 + 本地 5060 Laptop）都能直接用。
-#   为什么不用 cu130：flash-attn 没有 cu130 预编译 wheel，钉 cu130 会被迫源码编译。
 --extra-index-url https://download.pytorch.org/whl/cu128
 torch==2.8.0+cu128
 
 # --- flash-attn —— 直接钉官方预编译 wheel，绕开 PyPI sdist 的源码编译（1~2 小时）---
-#   官方 v2.8.3 wheel 用 CUDA 12.9 构建，含 sm_80/90/100/120 → 4090 与 Blackwell 都能跑。
+#   官方 v2.8.3 wheel 用 CUDA 12.9 构建，含 sm_80/90/100/120
 #   inference_controller 启动时自动 try import；没装则回退 PyTorch 内置 SDPA（零依赖、
 #   跨架构兼容），所以这几行如装不上可以直接注释掉，功能不受影响。
 #   用 environment markers 按 Python 版本自动选 wheel，覆盖 3.9–3.13，无需手动改文件。

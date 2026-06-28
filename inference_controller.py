@@ -6,6 +6,9 @@ import time
 import shutil
 import asyncio
 import sqlite3
+import subprocess
+import tempfile
+import numpy as np
 import torch
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -587,10 +590,35 @@ async def api_recognition(
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"模型加载失败: {str(e)}")
 
-        data = await audio.read()
+        raw = await audio.read()
         generate_kwargs = {"task": "transcribe", "num_beams": num_beams, "language": "chinese"}
 
-        result = INFERENCE_CACHE["pipeline"](data, return_timestamps=True, generate_kwargs=generate_kwargs)
+        # 写到临时文件后用 ffmpeg 解码为 16kHz mono float32 PCM。
+        # 直接把 bytes 传给 pipeline 会走 `ffmpeg -i pipe:0`，MP4/M4A 等
+        # 需要 seek 读 moov atom 的格式在 pipe 里会失败。文件路径 + 管道输出绕开此限制。
+        suffix = os.path.splitext(audio.filename or "upload.wav")[1].lower() or ".wav"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(raw)
+            tmp_path = tmp.name
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-i", tmp_path, "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+                capture_output=True,
+            )
+            if not proc.stdout:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"音频格式无法解析（{suffix}），请上传 wav/mp3/m4a/flac 等常见格式",
+                )
+            pcm = np.frombuffer(proc.stdout, dtype=np.float32)
+        finally:
+            os.unlink(tmp_path)
+
+        result = INFERENCE_CACHE["pipeline"](
+            {"array": pcm, "sampling_rate": 16000},
+            return_timestamps=True,
+            generate_kwargs=generate_kwargs,
+        )
         print("RAW RESULT =", result)
 
         results = []
