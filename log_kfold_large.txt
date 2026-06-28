@@ -1,0 +1,1085 @@
+全量 297 条 → 5 折，各折测试集大小 [60, 60, 59, 59, 59]
+配方：base=whisper-base-models/whisper-large-v3  epochs=4  lr=0.0002  batch=4x2  lora(r=8,α=32,do=0.1)  augment=无
+（汇总 + eval 画像写入 log_kfold_large.txt；finetune 训练日志只在终端）
+
+===== 折 1/5：训练 237 / 测试 60 =====
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/finetune.py --base_model=whisper-base-models/whisper-large-v3 --train_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/train.json --test_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/test.json --output_dir=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/model --num_train_epochs=4 --early_stopping_patience=0 --load_best_model_at_end=False --learning_rate=0.0002 --per_device_train_batch_size=4 --gradient_accumulation_steps=2 --lora_r=8 --lora_alpha=32 --lora_dropout=0.1 --num_workers=4
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/scripts/eval_model.py /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/model/checkpoint-final --data /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/test.json --output /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/eval.json
+评测集：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/test.json（60 条）  num_beams=1
+
+=== 评测模型：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/model/checkpoint-final ===
+  [1/60] CER=0.000  ref='早上好'  hyp='早上好'
+  [2/60] CER=0.000  ref='我要喝水'  hyp='我要喝水'
+  [3/60] CER=0.000  ref='小心车'  hyp='小心车'
+  [4/60] CER=0.000  ref='我有两支笔'  hyp='我有两支笔'
+  [5/60] CER=0.000  ref='这是长方形'  hyp='这是长方形'
+  [6/60] CER=0.000  ref='我不明白'  hyp='我不明白'
+  [7/60] CER=1.000  ref='绿灯行'  hyp='与真相'
+  [8/60] CER=0.250  ref='你有什么'  hyp='你有什么吗'
+  [9/60] CER=0.000  ref='我很孤单'  hyp='我很孤单'
+  [10/60] CER=0.000  ref='请再说一次'  hyp='请再说一次'
+  [11/60] CER=0.667  ref='我能概括段意'  hyp='我能拜过万一'
+  [12/60] CER=0.250  ref='我没听清'  hyp='我没听'
+  [13/60] CER=0.000  ref='请不要着急'  hyp='请不要着急'
+  [14/60] CER=0.000  ref='我想喝水'  hyp='我想喝水'
+  [15/60] CER=0.667  ref='我要团结同学'  hyp='我要完全成立'
+  [16/60] CER=0.000  ref='妈妈我爱你'  hyp='妈妈我爱你'
+  [17/60] CER=0.000  ref='我想吃米饭'  hyp='我想吃米饭'
+  [18/60] CER=0.000  ref='一加二等于三'  hyp='一加二等于三'
+  [19/60] CER=0.000  ref='这里很热闹'  hyp='这里很热闹'
+  [20/60] CER=0.333  ref='这里疼'  hyp='这里成'
+  [21/60] CER=0.750  ref='中心思想'  hyp='中间十角'
+  [22/60] CER=0.000  ref='六除以二等于三'  hyp='六除以二等于三'
+  [23/60] CER=0.000  ref='左边有东西'  hyp='左边有东西'
+  [24/60] CER=0.000  ref='这里很安静'  hyp='这里很安静'
+  [25/60] CER=0.222  ref='我的铅笔长十八厘米'  hyp='我的天体长十八厘米'
+  [26/60] CER=0.000  ref='我要睡觉'  hyp='我要睡觉'
+  [27/60] CER=0.000  ref='我很勇敢'  hyp='我很勇敢'
+  [28/60] CER=0.000  ref='三乘二等于六'  hyp='三乘二等于六'
+  [29/60] CER=0.333  ref='我要尊敬老师'  hyp='我要问见老师'
+  [30/60] CER=0.000  ref='这是直线'  hyp='这是直线'
+  [31/60] CER=0.250  ref='我很紧张'  hyp='我很简张'
+  [32/60] CER=0.000  ref='对就是这样'  hyp='对就是这样'
+  [33/60] CER=0.000  ref='我做不到'  hyp='我做不到'
+  [34/60] CER=0.000  ref='同学再见'  hyp='同学再见'
+  [35/60] CER=0.000  ref='请帮我一下'  hyp='请帮我一下'
+  [36/60] CER=0.000  ref='这个怎么弄'  hyp='这个怎么弄'
+  [37/60] CER=0.400  ref='好像长方形'  hyp='好像草方人'
+  [38/60] CER=0.500  ref='今天多云'  hyp='今天阶梁'
+  [39/60] CER=0.600  ref='我要脱鞋子'  hyp='我要说写字'
+  [40/60] CER=0.200  ref='这里要进位'  hyp='这里要见位'
+  [41/60] CER=0.000  ref='我有五个朋友'  hyp='我有五个朋友'
+  [42/60] CER=0.143  ref='四乘五等于二十'  hyp='四乘一五等于二十'
+  [43/60] CER=0.000  ref='我忘了'  hyp='我忘了'
+  [44/60] CER=0.200  ref='今年我七岁'  hyp='今天我七岁'
+  [45/60] CER=0.000  ref='我能坚持住'  hyp='我能坚持住'
+  [46/60] CER=0.000  ref='我今天有点累'  hyp='我今天有点累'
+  [47/60] CER=0.500  ref='这个字怎么读'  hyp='这个是什么图'
+  [48/60] CER=0.000  ref='请安静一点'  hyp='请安静一点'
+  [49/60] CER=0.000  ref='老师辛苦了'  hyp='老师辛苦了'
+  [50/60] CER=0.500  ref='我要洗脸'  hyp='我要理解'
+  [51/60] CER=0.000  ref='下面很干净'  hyp='下面很干净'
+  [52/60] CER=0.000  ref='作业是什么'  hyp='作业是什么'
+  [53/60] CER=0.000  ref='没关系'  hyp='没关系'
+  [54/60] CER=0.250  ref='它是黄色'  hyp='他是黄色'
+  [55/60] CER=0.000  ref='九除以三等于三'  hyp='九除以三等于三'
+  [56/60] CER=0.000  ref='我很无聊'  hyp='我很无聊'
+  [57/60] CER=0.000  ref='我有三个苹果'  hyp='我有三个苹果'
+  [58/60] CER=0.000  ref='我会加油的'  hyp='我会加油的'
+  [59/60] CER=0.250  ref='请慢一点'  hyp='且慢一点'
+  [60/60] CER=0.000  ref='我会跑步'  hyp='我会跑步'
+
+==============================================================================
+模型                                      类型         CER(norm)      整句准确
+------------------------------------------------------------------------------
+kfold/小崔/fold0/model/checkpoint-final   LoRA→whisper-large-v3    13.5%     66.7%
+==============================================================================
+
+----- /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/model/checkpoint-final 错误画像 -----
+CER(raw含标点)=13.0%  CER(norm)=13.5%  CER(norm逐句平均)=13.8%
+  高频替换字对 (ref→hyp, 次数): 绿→与×1  灯→真×1  行→相×1  概→拜×1  括→过×1  段→万×1  意→一×1  团→完×1  结→全×1  同→成×1
+  高频漏字 (次数): 清×1
+  高频多字 (次数): 吗×1  一×1
+  最差 5 句：
+    CER=1.00  task_481.wav  ref='绿灯行'  hyp='与真相'
+    CER=0.75  task_220.wav  ref='中心思想'  hyp='中间十角'
+    CER=0.67  task_222.wav  ref='我能概括段意'  hyp='我能拜过万一'
+    CER=0.67  task_552.wav  ref='我要团结同学'  hyp='我要完全成立'
+    CER=0.60  task_476.wav  ref='我要脱鞋子'  hyp='我要说写字'
+
+⚠️ 提醒：test.json 与训练同源 → 此 CER 偏乐观；且评的是 PyTorch 模型而非线上 q5_0 ggml。
+
+完整结果已写入：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold0/eval.json
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/zhconv/zhconv.py:33: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_stream
+Device set to use cuda:0
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You have passed task=transcribe, but also have set `forced_decoder_ids` to [[1, None], [2, 50360]] which creates a conflict. `forced_decoder_ids` will be ignored in favor of task=transcribe.
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You seem to be using the pipelines sequentially on GPU. In order to maximize efficiency please use a dataset
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+  → 折 1 CER=13.5%  整句准确=66.7%
+
+===== 折 2/5：训练 237 / 测试 60 =====
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/finetune.py --base_model=whisper-base-models/whisper-large-v3 --train_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/train.json --test_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/test.json --output_dir=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/model --num_train_epochs=4 --early_stopping_patience=0 --load_best_model_at_end=False --learning_rate=0.0002 --per_device_train_batch_size=4 --gradient_accumulation_steps=2 --lora_r=8 --lora_alpha=32 --lora_dropout=0.1 --num_workers=4
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/scripts/eval_model.py /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/model/checkpoint-final --data /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/test.json --output /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/eval.json
+评测集：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/test.json（60 条）  num_beams=1
+
+=== 评测模型：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/model/checkpoint-final ===
+  [1/60] CER=0.400  ref='那不是锐角'  hyp='那不是味道'
+  [2/60] CER=0.000  ref='注意安全'  hyp='注意安全'
+  [3/60] CER=0.000  ref='现在是早上'  hyp='现在是早上'
+  [4/60] CER=0.000  ref='明天见'  hyp='明天见'
+  [5/60] CER=0.000  ref='黄灯等一等'  hyp='黄灯等一等'
+  [6/60] CER=0.125  ref='这个词是什么意思'  hyp='这个词是什么意思�'
+  [7/60] CER=0.200  ref='我不喜欢他'  hyp='我不喜欢它'
+  [8/60] CER=0.000  ref='你们不要跑'  hyp='你们不要跑'
+  [9/60] CER=0.000  ref='我会写字'  hyp='我会写字'
+  [10/60] CER=0.200  ref='我想起来了'  hyp='我想起难了'
+  [11/60] CER=0.000  ref='我会越来越棒'  hyp='我会越来越棒'
+  [12/60] CER=0.000  ref='这是曲线'  hyp='这是曲线'
+  [13/60] CER=0.000  ref='对不起'  hyp='对不起'
+  [14/60] CER=0.000  ref='我会站起来'  hyp='我会站起来'
+  [15/60] CER=0.000  ref='请帮我把书包拿过来'  hyp='请帮我把书包拿过来'
+  [16/60] CER=0.167  ref='我能试一试吗'  hyp='我能试一次吗'
+  [17/60] CER=0.000  ref='我饿了'  hyp='我饿了'
+  [18/60] CER=0.000  ref='我们一起走'  hyp='我们一起走'
+  [19/60] CER=0.000  ref='今天下雨了'  hyp='今天下雨了'
+  [20/60] CER=0.000  ref='今天天气好'  hyp='今天天气好'
+  [21/60] CER=0.500  ref='我很听话'  hyp='我很心胜'
+  [22/60] CER=0.400  ref='请离我远点'  hyp='请你我点'
+  [23/60] CER=0.000  ref='我想吃蛋糕'  hyp='我想吃蛋糕'
+  [24/60] CER=0.167  ref='我能坐这里吗'  hyp='我能坐这里吗�'
+  [25/60] CER=0.667  ref='先算括号里的'  hyp='新款座号你的'
+  [26/60] CER=0.167  ref='我们去操场吧'  hyp='我们去趟场吧'
+  [27/60] CER=0.000  ref='我记住了'  hyp='我记住了'
+  [28/60] CER=0.000  ref='我想吃面条'  hyp='我想吃面条'
+  [29/60] CER=0.000  ref='可以加入你们吗'  hyp='可以加入你们吗'
+  [30/60] CER=0.000  ref='我不知道'  hyp='我不知道'
+  [31/60] CER=0.000  ref='我会读书'  hyp='我会读书'
+  [32/60] CER=0.600  ref='请扶我一把'  hyp='请坐一马'
+  [33/60] CER=0.167  ref='我会好好学习'  hyp='我会好好学你'
+  [34/60] CER=0.000  ref='现在是上午'  hyp='现在是上午'
+  [35/60] CER=0.000  ref='好我知道了'  hyp='好我知道了'
+  [36/60] CER=0.000  ref='这是五角星'  hyp='这是五角星'
+  [37/60] CER=0.000  ref='我很开心'  hyp='我很开心'
+  [38/60] CER=0.000  ref='我会努力的'  hyp='我会努力的'
+  [39/60] CER=0.000  ref='今天我很开心'  hyp='今天我很开心'
+  [40/60] CER=0.000  ref='我喜欢这个角色'  hyp='我喜欢这个角色'
+  [41/60] CER=0.125  ref='请帮我翻到下一页'  hyp='请帮我关到下一页'
+  [42/60] CER=0.000  ref='明年我八岁'  hyp='明年我八岁'
+  [43/60] CER=0.000  ref='我有个主意'  hyp='我有个主意'
+  [44/60] CER=0.000  ref='这是梯形'  hyp='这是梯形'
+  [45/60] CER=0.750  ref='今天阴天'  hyp='今天是新年'
+  [46/60] CER=0.333  ref='我用的是乘法'  hyp='我用的是橙花'
+  [47/60] CER=0.400  ref='昨天很好玩'  hyp='国家很好玩'
+  [48/60] CER=0.000  ref='请大声一点'  hyp='请大声一点'
+  [49/60] CER=0.000  ref='两个三角形'  hyp='两个三角形'
+  [50/60] CER=0.600  ref='爷爷奶奶好'  hyp='谢谢奶奶'
+  [51/60] CER=0.000  ref='明天要上学'  hyp='明天要上学'
+  [52/60] CER=0.000  ref='我不理解'  hyp='我不理解'
+  [53/60] CER=0.000  ref='这是三角形'  hyp='这是三角形'
+  [54/60] CER=0.000  ref='答案是ABCD'  hyp='答案是ABCD'
+  [55/60] CER=0.000  ref='我要洗澡'  hyp='我要洗澡'
+  [56/60] CER=0.000  ref='我会唱歌'  hyp='我会唱歌'
+  [57/60] CER=0.667  ref='我要遵守纪律'  hyp='我要温柔气息'
+  [58/60] CER=0.200  ref='他有玩具车'  hyp='她有玩具车'
+  [59/60] CER=0.000  ref='同学你好'  hyp='同学你好'
+  [60/60] CER=0.000  ref='请再讲一遍'  hyp='请再讲一遍'
+
+==============================================================================
+模型                                      类型         CER(norm)      整句准确
+------------------------------------------------------------------------------
+kfold/小崔/fold1/model/checkpoint-final   LoRA→whisper-large-v3    11.8%     68.3%
+==============================================================================
+
+----- /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/model/checkpoint-final 错误画像 -----
+CER(raw含标点)=11.6%  CER(norm)=11.8%  CER(norm逐句平均)=11.4%
+  高频替换字对 (ref→hyp, 次数): 爷→谢×2  锐→味×1  角→道×1  他→它×1  来→难×1  试→次×1  听→心×1  话→胜×1  离→你×1  先→新×1
+  高频漏字 (次数): 远×1  扶×1  好×1
+  高频多字 (次数): �×2  是×1
+  最差 5 句：
+    CER=0.75  task_421.wav  ref='今天阴天'  hyp='今天是新年'
+    CER=0.67  task_240.wav  ref='先算括号里的'  hyp='新款座号你的'
+    CER=0.67  task_551.wav  ref='我要遵守纪律'  hyp='我要温柔气息'
+    CER=0.60  task_395.wav  ref='请扶我一把'  hyp='请坐一马'
+    CER=0.60  task_493.wav  ref='爷爷奶奶好'  hyp='谢谢奶奶'
+
+⚠️ 提醒：test.json 与训练同源 → 此 CER 偏乐观；且评的是 PyTorch 模型而非线上 q5_0 ggml。
+
+完整结果已写入：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold1/eval.json
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/zhconv/zhconv.py:33: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_stream
+Device set to use cuda:0
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You have passed task=transcribe, but also have set `forced_decoder_ids` to [[1, None], [2, 50360]] which creates a conflict. `forced_decoder_ids` will be ignored in favor of task=transcribe.
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You seem to be using the pipelines sequentially on GPU. In order to maximize efficiency please use a dataset
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+  → 折 2 CER=11.8%  整句准确=68.3%
+
+===== 折 3/5：训练 238 / 测试 59 =====
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/finetune.py --base_model=whisper-base-models/whisper-large-v3 --train_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/train.json --test_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/test.json --output_dir=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/model --num_train_epochs=4 --early_stopping_patience=0 --load_best_model_at_end=False --learning_rate=0.0002 --per_device_train_batch_size=4 --gradient_accumulation_steps=2 --lora_r=8 --lora_alpha=32 --lora_dropout=0.1 --num_workers=4
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/scripts/eval_model.py /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/model/checkpoint-final --data /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/test.json --output /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/eval.json
+评测集：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/test.json（59 条）  num_beams=1
+
+=== 评测模型：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/model/checkpoint-final ===
+  [1/59] CER=0.000  ref='我会举手'  hyp='我会举手'
+  [2/59] CER=0.800  ref='周末你去哪'  hyp='周末你去哪儿了吗�'
+  [3/59] CER=0.000  ref='这是谁的'  hyp='这是谁的'
+  [4/59] CER=0.000  ref='我很高兴'  hyp='我很高兴'
+  [5/59] CER=0.000  ref='这里很干净'  hyp='这里很干净'
+  [6/59] CER=0.000  ref='我要按时完成'  hyp='我要按时完成'
+  [7/59] CER=0.000  ref='这是我的'  hyp='这是我的'
+  [8/59] CER=0.000  ref='请靠近一点'  hyp='请靠近一点'
+  [9/59] CER=0.000  ref='好可惜啊'  hyp='好可惜啊'
+  [10/59] CER=0.000  ref='让我自己来'  hyp='让我自己来'
+  [11/59] CER=0.000  ref='我想吃水果'  hyp='我想吃水果'
+  [12/59] CER=0.000  ref='我需要帮助'  hyp='我需要帮助'
+  [13/59] CER=0.250  ref='我会坐下'  hyp='我会做下'
+  [14/59] CER=0.000  ref='我很懂事'  hyp='我很懂事'
+  [15/59] CER=0.000  ref='今天很热'  hyp='今天很热'
+  [16/59] CER=0.833  ref='一百是十个十'  hyp='一本试试试'
+  [17/59] CER=0.000  ref='一小时等于六十分'  hyp='一小时等于六十分'
+  [18/59] CER=0.556  ref='这两个图形是对称的'  hyp='这长的图形是锐色'
+  [19/59] CER=0.000  ref='我懂了'  hyp='我懂了'
+  [20/59] CER=0.167  ref='不对不是这样'  hyp='不会不是这样'
+  [21/59] CER=0.000  ref='前面有人'  hyp='前面有人'
+  [22/59] CER=0.286  ref='一斤等于五百克'  hyp='一天等于五百次'
+  [23/59] CER=0.000  ref='二加三等于五'  hyp='二加三等于五'
+  [24/59] CER=0.000  ref='我要上楼梯'  hyp='我要上楼梯'
+  [25/59] CER=0.200  ref='后面是空的'  hyp='后面是通的'
+  [26/59] CER=0.400  ref='请耐心一点'  hyp='请再�一点'
+  [27/59] CER=0.000  ref='我的作业做完了'  hyp='我的作业做完了'
+  [28/59] CER=0.000  ref='我听到声音'  hyp='我听到声音'
+  [29/59] CER=0.000  ref='今天是晴天'  hyp='今天是晴天'
+  [30/59] CER=0.000  ref='我会写字'  hyp='我会写字'
+  [31/59] CER=0.500  ref='你真聪明'  hyp='女生聪明'
+  [32/59] CER=0.571  ref='二百零一到三百'  hyp='二零一至三零零'
+  [33/59] CER=0.000  ref='别担心'  hyp='别担心'
+  [34/59] CER=0.000  ref='这里很整齐'  hyp='这里很整齐'
+  [35/59] CER=0.000  ref='拜拜'  hyp='拜拜'
+  [36/59] CER=0.000  ref='他们在玩球'  hyp='他们在玩球'
+  [37/59] CER=0.000  ref='这里很干净'  hyp='这里很干净'
+  [38/59] CER=0.500  ref='我长大了'  hyp='我早上了'
+  [39/59] CER=0.000  ref='今天是周末'  hyp='今天是周末'
+  [40/59] CER=7.833  ref='我有四块饼干'  hyp='我有四块饼饼饼饼饼�������������������������������������������'
+  [41/59] CER=0.000  ref='我有点冷'  hyp='我有点冷'
+  [42/59] CER=0.500  ref='我要洗手'  hyp='我要离守'
+  [43/59] CER=0.000  ref='八减五等于三'  hyp='八减五等于三'
+  [44/59] CER=0.200  ref='我要过马路'  hyp='我要坐马路'
+  [45/59] CER=0.000  ref='现在是晚上'  hyp='现在是晚上'
+  [46/59] CER=0.000  ref='这是爱心形'  hyp='这是爱心形'
+  [47/59] CER=0.000  ref='我很难过'  hyp='我很难过'
+  [48/59] CER=0.200  ref='我要下楼梯'  hyp='我要下楼'
+  [49/59] CER=0.000  ref='我想喝果汁'  hyp='我想喝果汁'
+  [50/59] CER=0.000  ref='小心点'  hyp='小心点'
+  [51/59] CER=0.000  ref='我想妈妈了'  hyp='我想妈妈了'
+  [52/59] CER=0.000  ref='这里很漂亮'  hyp='这里很漂亮'
+  [53/59] CER=0.667  ref='等等我'  hyp='登登我'
+  [54/59] CER=0.167  ref='再说一遍好吗'  hyp='再说一遍好吗�'
+  [55/59] CER=0.000  ref='我要穿衣服'  hyp='我要穿衣服'
+  [56/59] CER=0.000  ref='我害怕'  hyp='我害怕'
+  [57/59] CER=0.250  ref='这是直角'  hyp='这是指角'
+  [58/59] CER=0.000  ref='那是什么'  hyp='那是什么'
+  [59/59] CER=0.000  ref='那是你的'  hyp='那是你的'
+
+==============================================================================
+模型                                      类型         CER(norm)      整句准确
+------------------------------------------------------------------------------
+kfold/小崔/fold2/model/checkpoint-final   LoRA→whisper-large-v3    29.6%     69.5%
+==============================================================================
+
+----- /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/model/checkpoint-final 错误画像 -----
+CER(raw含标点)=25.9%  CER(norm)=29.6%  CER(norm逐句平均)=25.2%
+  高频替换字对 (ref→hyp, 次数): 十→试×2  等→登×2  坐→做×1  是→本×1  个→试×1  两→长×1  个→的×1  称→锐×1  的→色×1  对→会×1
+  高频漏字 (次数): 百×2  对×1  梯×1
+  高频多字 (次数): �×44  饼×4  儿×1  了×1  吗×1  零×1
+  最差 5 句：
+    CER=7.83  task_437.wav  ref='我有四块饼干'  hyp='我有四块饼饼饼饼饼�������������������������������������������'
+    CER=0.83  task_511.wav  ref='一百是十个十'  hyp='一本试试试'
+    CER=0.80  task_304.wav  ref='周末你去哪'  hyp='周末你去哪儿了吗�'
+    CER=0.67  task_300.wav  ref='等等我'  hyp='登登我'
+    CER=0.57  task_454.wav  ref='二百零一到三百'  hyp='二零一至三零零'
+
+⚠️ 提醒：test.json 与训练同源 → 此 CER 偏乐观；且评的是 PyTorch 模型而非线上 q5_0 ggml。
+
+完整结果已写入：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold2/eval.json
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/zhconv/zhconv.py:33: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_stream
+Device set to use cuda:0
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You have passed task=transcribe, but also have set `forced_decoder_ids` to [[1, None], [2, 50360]] which creates a conflict. `forced_decoder_ids` will be ignored in favor of task=transcribe.
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You seem to be using the pipelines sequentially on GPU. In order to maximize efficiency please use a dataset
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+  → 折 3 CER=29.6%  整句准确=69.5%
+
+===== 折 4/5：训练 238 / 测试 59 =====
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/finetune.py --base_model=whisper-base-models/whisper-large-v3 --train_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/train.json --test_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/test.json --output_dir=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/model --num_train_epochs=4 --early_stopping_patience=0 --load_best_model_at_end=False --learning_rate=0.0002 --per_device_train_batch_size=4 --gradient_accumulation_steps=2 --lora_r=8 --lora_alpha=32 --lora_dropout=0.1 --num_workers=4
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/scripts/eval_model.py /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/model/checkpoint-final --data /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/test.json --output /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/eval.json
+评测集：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/test.json（59 条）  num_beams=1
+
+=== 评测模型：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/model/checkpoint-final ===
+  [1/59] CER=1.000  ref='一个梯形'  hyp='离了七年'
+  [2/59] CER=0.833  ref='我预习了课文'  hyp='我心里有特风'
+  [3/59] CER=0.250  ref='我算好了'  hyp='我画好了'
+  [4/59] CER=0.200  ref='我尝到甜味'  hyp='我尝尝甜味'
+  [5/59] CER=0.000  ref='这里很危险'  hyp='这里很危险'
+  [6/59] CER=0.000  ref='你说什么'  hyp='你说什么'
+  [7/59] CER=0.000  ref='我的东西掉了'  hyp='我的东西掉了'
+  [8/59] CER=0.500  ref='不要放弃'  hyp='不要忘记'
+  [9/59] CER=0.200  ref='现在几点了'  hyp='现在几点了�'
+  [10/59] CER=0.000  ref='我会走路'  hyp='我会走路'
+  [11/59] CER=0.000  ref='我没听懂'  hyp='我没听懂'
+  [12/59] CER=0.000  ref='你做得很好'  hyp='你做得很好'
+  [13/59] CER=0.000  ref='我做到了'  hyp='我做到了'
+  [14/59] CER=0.167  ref='这个角是钝角'  hyp='这个角是正角'
+  [15/59] CER=0.000  ref='我很生气'  hyp='我很生气'
+  [16/59] CER=0.000  ref='这里很舒服'  hyp='这里很舒服'
+  [17/59] CER=0.000  ref='我可以自己来'  hyp='我可以自己来'
+  [18/59] CER=0.000  ref='我在外面'  hyp='我在外面'
+  [19/59] CER=0.000  ref='我会画画'  hyp='我会画画'
+  [20/59] CER=0.000  ref='请给我看插图'  hyp='请给我看插图'
+  [21/59] CER=0.000  ref='今天有什么课'  hyp='今天有什么课'
+  [22/59] CER=0.250  ref='我会关门'  hyp='我会翻门'
+  [23/59] CER=0.200  ref='我愿意试试'  hyp='我愿意试'
+  [24/59] CER=0.000  ref='老师好'  hyp='老师好'
+  [25/59] CER=0.000  ref='老师再见'  hyp='老师再见'
+  [26/59] CER=0.000  ref='我喜欢这里'  hyp='我喜欢这里'
+  [27/59] CER=0.000  ref='一米等于一百厘米'  hyp='一米等于一百厘米'
+  [28/59] CER=0.000  ref='快迟到了'  hyp='快迟到了'
+  [29/59] CER=0.000  ref='十减三等于七'  hyp='十减三等于七'
+  [30/59] CER=0.000  ref='七减六等于一'  hyp='七减六等于一'
+  [31/59] CER=0.333  ref='坚持就是胜利'  hyp='坚持就是努力'
+  [32/59] CER=0.000  ref='你好'  hyp='你好'
+  [33/59] CER=0.000  ref='爸爸辛苦了'  hyp='爸爸辛苦了'
+  [34/59] CER=0.000  ref='我在学校'  hyp='我在学校'
+  [35/59] CER=0.000  ref='我有点热'  hyp='我有点热'
+  [36/59] CER=0.000  ref='五加五等于十'  hyp='五加五等于十'
+  [37/59] CER=0.000  ref='这是直线'  hyp='这是直线'
+  [38/59] CER=0.333  ref='我要认真听讲'  hyp='我要认真清'
+  [39/59] CER=0.000  ref='我能做到'  hyp='我能做到'
+  [40/59] CER=0.714  ref='比喻句写得真好'  hyp='你综绵的真好'
+  [41/59] CER=0.000  ref='请告诉我解题步骤'  hyp='请告诉我解题步骤'
+  [42/59] CER=0.000  ref='慢点走'  hyp='慢点走'
+  [43/59] CER=0.000  ref='我需要休息一下'  hyp='我需要休息一下'
+  [44/59] CER=0.250  ref='可以好的'  hyp='可以好了'
+  [45/59] CER=0.250  ref='我会弯腰'  hyp='我会翻腰'
+  [46/59] CER=0.000  ref='我有一本书'  hyp='我有一本书'
+  [47/59] CER=0.200  ref='她有小娃娃'  hyp='他有小娃娃'
+  [48/59] CER=1.000  ref='生日快乐'  hyp='人又外了'
+  [49/59] CER=0.500  ref='不行不要'  hyp='不辛苦不要'
+  [50/59] CER=0.400  ref='上面放好了'  hyp='上面算好多'
+  [51/59] CER=0.000  ref='这是红色'  hyp='这是红色'
+  [52/59] CER=0.000  ref='我闻到香味'  hyp='我闻到香味'
+  [53/59] CER=0.000  ref='这道题我会做'  hyp='这道题我会做'
+  [54/59] CER=0.000  ref='请不要碰我'  hyp='请不要碰我'
+  [55/59] CER=0.143  ref='作者想表达什么'  hyp='或者想表达什么'
+  [56/59] CER=0.000  ref='不是这样的'  hyp='不是这样的'
+  [57/59] CER=0.200  ref='后天放假吗'  hyp='后天放假了'
+  [58/59] CER=0.500  ref='对不起我错了'  hyp='对不起'
+  [59/59] CER=0.000  ref='我同意'  hyp='我同意'
+
+==============================================================================
+模型                                      类型         CER(norm)      整句准确
+------------------------------------------------------------------------------
+kfold/小崔/fold3/model/checkpoint-final   LoRA→whisper-large-v3    14.5%     64.4%
+==============================================================================
+
+----- /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/model/checkpoint-final 错误画像 -----
+CER(raw含标点)=17.2%  CER(norm)=14.5%  CER(norm逐句平均)=14.3%
+  高频替换字对 (ref→hyp, 次数): 一→离×1  个→了×1  梯→七×1  形→年×1  预→心×1  习→里×1  了→有×1  课→特×1  文→风×1  算→画×1
+  高频漏字 (次数): 试×1  听×1  比×1  我×1  错×1  了×1
+  高频多字 (次数): �×1  辛×1
+  最差 5 句：
+    CER=1.00  task_349.wav  ref='一个梯形'  hyp='离了七年'
+    CER=1.00  task_305.wav  ref='生日快乐'  hyp='人又外了'
+    CER=0.83  task_219.wav  ref='我预习了课文'  hyp='我心里有特风'
+    CER=0.71  task_224.wav  ref='比喻句写得真好'  hyp='你综绵的真好'
+    CER=0.50  task_501.wav  ref='不要放弃'  hyp='不要忘记'
+
+⚠️ 提醒：test.json 与训练同源 → 此 CER 偏乐观；且评的是 PyTorch 模型而非线上 q5_0 ggml。
+
+完整结果已写入：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold3/eval.json
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/zhconv/zhconv.py:33: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_stream
+Device set to use cuda:0
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You have passed task=transcribe, but also have set `forced_decoder_ids` to [[1, None], [2, 50360]] which creates a conflict. `forced_decoder_ids` will be ignored in favor of task=transcribe.
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You seem to be using the pipelines sequentially on GPU. In order to maximize efficiency please use a dataset
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+  → 折 4 CER=14.5%  整句准确=64.4%
+
+===== 折 5/5：训练 238 / 测试 59 =====
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/finetune.py --base_model=whisper-base-models/whisper-large-v3 --train_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/train.json --test_data=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/test.json --output_dir=/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/model --num_train_epochs=4 --early_stopping_patience=0 --load_best_model_at_end=False --learning_rate=0.0002 --per_device_train_batch_size=4 --gradient_accumulation_steps=2 --lora_r=8 --lora_alpha=32 --lora_dropout=0.1 --num_workers=4
+  $ /environment/miniconda3/envs/whisper/bin/python /home/featurize/work/whisper-finetune-plus/scripts/eval_model.py /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/model/checkpoint-final --data /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/test.json --output /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/eval.json
+评测集：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/test.json（59 条）  num_beams=1
+
+=== 评测模型：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/model/checkpoint-final ===
+  [1/59] CER=0.000  ref='红灯停'  hyp='红灯停'
+  [2/59] CER=0.000  ref='我要回家'  hyp='我要回家'
+  [3/59] CER=0.000  ref='我会关灯'  hyp='我会关灯'
+  [4/59] CER=0.000  ref='我们一起玩吧'  hyp='我们一起玩吧'
+  [5/59] CER=0.000  ref='这里很安全'  hyp='这里很安全'
+  [6/59] CER=0.500  ref='那是蓝色'  hyp='那是男的'
+  [7/59] CER=0.000  ref='我身高一米三五'  hyp='我身高一米三五'
+  [8/59] CER=0.000  ref='你真厉害'  hyp='你真厉害'
+  [9/59] CER=0.000  ref='今天出太阳'  hyp='今天出太阳'
+  [10/59] CER=0.000  ref='我很着急'  hyp='我很着急'
+  [11/59] CER=0.000  ref='我在里面'  hyp='我在里面'
+  [12/59] CER=0.000  ref='我不想做'  hyp='我不想做'
+  [13/59] CER=0.800  ref='不要跑太快'  hyp='我不要跑到海外'
+  [14/59] CER=0.000  ref='我喜欢绿色'  hyp='我喜欢绿色'
+  [15/59] CER=0.000  ref='我明白了'  hyp='我明白了'
+  [16/59] CER=0.000  ref='我在家里'  hyp='我在家里'
+  [17/59] CER=0.000  ref='我听懂了'  hyp='我听懂了'
+  [18/59] CER=0.000  ref='我想喝牛奶'  hyp='我想喝牛奶'
+  [19/59] CER=0.000  ref='我一定努力'  hyp='我一定努力'
+  [20/59] CER=0.200  ref='这是正方形'  hyp='角是正方形'
+  [21/59] CER=0.250  ref='我要刷牙'  hyp='我要刮牙'
+  [22/59] CER=0.000  ref='加油'  hyp='加油'
+  [23/59] CER=0.000  ref='我会开门'  hyp='我会开门'
+  [24/59] CER=0.000  ref='我讨厌这个'  hyp='我讨厌这个'
+  [25/59] CER=0.200  ref='请念下一段'  hyp='请线下一段'
+  [26/59] CER=0.000  ref='这是正方形'  hyp='这是正方形'
+  [27/59] CER=0.000  ref='我会开灯'  hyp='我会开灯'
+  [28/59] CER=0.000  ref='我喜欢你'  hyp='我喜欢你'
+  [29/59] CER=0.000  ref='一加一等于二'  hyp='一加一等于二'
+  [30/59] CER=0.000  ref='这是圆形'  hyp='这是圆形'
+  [31/59] CER=0.400  ref='我要上厕所'  hyp='我要上锁锁'
+  [32/59] CER=0.000  ref='你真好'  hyp='你真好'
+  [33/59] CER=0.000  ref='我摸到了'  hyp='我摸到了'
+  [34/59] CER=0.000  ref='这里很温暖'  hyp='这里很温暖'
+  [35/59] CER=0.000  ref='谢谢你的帮助'  hyp='谢谢你的帮助'
+  [36/59] CER=0.250  ref='轮到你了'  hyp='闻到你了'
+  [37/59] CER=0.000  ref='三个圆形'  hyp='三个圆形'
+  [38/59] CER=0.000  ref='我看见你了'  hyp='我看见你了'
+  [39/59] CER=0.000  ref='我想吃饭'  hyp='我想吃饭'
+  [40/59] CER=0.000  ref='太好了'  hyp='太好了'
+  [41/59] CER=0.500  ref='你觉得呢'  hyp='你觉得什么'
+  [42/59] CER=0.400  ref='今天刮风了'  hyp='今天发酸了'
+  [43/59] CER=0.000  ref='今天很冷'  hyp='今天很冷'
+  [44/59] CER=0.000  ref='请不要吵'  hyp='请不要吵'
+  [45/59] CER=0.000  ref='你的笔能借我吗'  hyp='你的笔能借我吗'
+  [46/59] CER=0.667  ref='我会天天向上'  hyp='我会清清想想'
+  [47/59] CER=0.250  ref='我在这儿'  hyp='我在这'
+  [48/59] CER=0.500  ref='我不舒服'  hyp='我不说数'
+  [49/59] CER=0.000  ref='继续努力'  hyp='继续努力'
+  [50/59] CER=0.000  ref='现在是下午'  hyp='现在是下午'
+  [51/59] CER=0.500  ref='单位是“米”'  hyp='三位是米'
+  [52/59] CER=0.000  ref='我在这里'  hyp='我在这里'
+  [53/59] CER=0.400  ref='我不怕困难'  hyp='我不怕润蚊'
+  [54/59] CER=0.000  ref='右边是我的'  hyp='右边是我的'
+  [55/59] CER=0.200  ref='加油你最棒'  hyp='加油你会棒'
+  [56/59] CER=0.000  ref='我能回答问题'  hyp='我能回答问题'
+  [57/59] CER=0.000  ref='谢谢大家'  hyp='谢谢大家'
+  [58/59] CER=0.500  ref='没关系别难过'  hyp='没关系别担心我'
+  [59/59] CER=0.000  ref='大于小于等于'  hyp='大于小于等于'
+
+==============================================================================
+模型                                      类型         CER(norm)      整句准确
+------------------------------------------------------------------------------
+kfold/小崔/fold4/model/checkpoint-final   LoRA→whisper-large-v3    11.8%     72.9%
+==============================================================================
+
+----- /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/model/checkpoint-final 错误画像 -----
+CER(raw含标点)=12.0%  CER(norm)=11.8%  CER(norm逐句平均)=11.0%
+  高频替换字对 (ref→hyp, 次数): 天→清×2  蓝→男×1  色→的×1  太→海×1  快→外×1  这→角×1  刷→刮×1  念→线×1  厕→锁×1  所→锁×1
+  高频漏字 (次数): 儿×1  “×1  ”×1
+  高频多字 (次数): 我×1  到×1  什×1  担×1
+  最差 5 句：
+    CER=0.80  task_485.wav  ref='不要跑太快'  hyp='我不要跑到海外'
+    CER=0.67  task_548.wav  ref='我会天天向上'  hyp='我会清清想想'
+    CER=0.50  task_371.wav  ref='那是蓝色'  hyp='那是男的'
+    CER=0.50  task_314.wav  ref='你觉得呢'  hyp='你觉得什么'
+    CER=0.50  task_328.wav  ref='我不舒服'  hyp='我不说数'
+
+⚠️ 提醒：test.json 与训练同源 → 此 CER 偏乐观；且评的是 PyTorch 模型而非线上 q5_0 ggml。
+
+完整结果已写入：/home/featurize/work/whisper-finetune-plus/output/_kfold/小崔/fold4/eval.json
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/zhconv/zhconv.py:33: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_stream
+Device set to use cuda:0
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You have passed task=transcribe, but also have set `forced_decoder_ids` to [[1, None], [2, 50360]] which creates a conflict. `forced_decoder_ids` will be ignored in favor of task=transcribe.
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+You seem to be using the pipelines sequentially on GPU. In order to maximize efficiency please use a dataset
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+/environment/miniconda3/envs/whisper/lib/python3.10/site-packages/transformers/models/whisper/generation_whisper.py:573: FutureWarning: The input name `inputs` is deprecated. Please make sure to use `input_features` instead.
+  warnings.warn(
+  → 折 5 CER=11.8%  整句准确=72.9%
+
+============================================================
+配方 base=whisper-base-models/whisper-large-v3  epochs=4  augment=无
+5 折 CER：13.5%  11.8%  29.6%  14.5%  11.8%
+平均 CER = 16.3%  ±6.7%（std=噪声地板，改动提升需 > 此值才算真）
+平均整句准确 = 68.4%
+============================================================
+⚠️ 同源乐观仍在：全部数据来自同一次录音 → 绝对值偏乐观，此数字仅用于【配方对比】。
+（每折模型已清理；数据/结果留在 /home/featurize/work/whisper-finetune-plus/output/_kfold/小崔，加 --keep 可保留模型）
+
+📄 本次完整汇总已写入：log_kfold_large.txt
