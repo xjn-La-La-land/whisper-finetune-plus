@@ -87,6 +87,10 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=42, help="折切分随机种子（固定以便复现/对比）")
     p.add_argument("--learning-rate", type=float, default=2e-4)
     p.add_argument("--batch-size", type=int, default=8)
+    p.add_argument("--grad-accum", type=int, default=1, help="梯度累积步数；大模型显存吃紧时调小 batch、用它补回有效 batch")
+    p.add_argument("--lora-r", type=int, default=8, help="LoRA 秩 r")
+    p.add_argument("--lora-alpha", type=int, default=32, help="LoRA 缩放 alpha（有效缩放=alpha/r）")
+    p.add_argument("--lora-dropout", type=float, default=0.1, help="LoRA dropout")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--augment-config", default=None, help="数据增强配置（透传给 finetune.py 的 --augment_config_path）")
     p.add_argument("--dataset-dir", default=os.path.join(PROJECT_ROOT, "dataset"))
@@ -100,7 +104,8 @@ def main() -> None:
     folds = make_folds(len(data), args.k, args.seed)
     print(f"全量 {len(data)} 条 → {args.k} 折，各折测试集大小 {[len(f) for f in folds]}")
     print(f"配方：base={args.base_model}  epochs={args.epochs}  lr={args.learning_rate}  "
-          f"batch={args.batch_size}  augment={args.augment_config or '无'}\n")
+          f"batch={args.batch_size}x{args.grad_accum}  lora(r={args.lora_r},α={args.lora_alpha},do={args.lora_dropout})  "
+          f"augment={args.augment_config or '无'}\n")
     if args.dry_run:
         return
 
@@ -139,6 +144,10 @@ def main() -> None:
             "--load_best_model_at_end=False",
             f"--learning_rate={args.learning_rate}",
             f"--per_device_train_batch_size={args.batch_size}",
+            f"--gradient_accumulation_steps={args.grad_accum}",
+            f"--lora_r={args.lora_r}",
+            f"--lora_alpha={args.lora_alpha}",
+            f"--lora_dropout={args.lora_dropout}",
             f"--num_workers={args.num_workers}",
         ] + ([f"--augment_config_path={args.augment_config}"] if args.augment_config else []))
 
