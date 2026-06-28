@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import tempfile
 import numpy as np
+import librosa
 import torch
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -539,6 +540,42 @@ def load_model_to_gpu(model_path: str):
     print("模型加载完成！")
 
 
+def segment_audio(pcm: np.ndarray, sr: int = 16000, top_db: int = 30,
+                  pad_s: float = 0.15, merge_gap_s: float = 0.3, min_seg_s: float = 0.2):
+    """按静音把长音频切成「句级」片段，返回 [(start_sample, end_sample), ...]。
+
+    为什么需要：朗读整段课文这种长音频，直接喂给在「短单句」上微调的模型会严重退化——模型被
+    特化成「短语音 + 大片静音」的 30s 窗口分布，塞满连续语音的 30s 块对它是分布外。先按停顿切成
+    短句、逐句识别再拼接，能让每段都落回训练分布；切在自然停顿也避免 30s 硬切切碎词。
+    用 librosa 能量门限，零额外依赖。短音频（无内部长停顿）会被切成 1 段，等价于原来的整段识别。
+    """
+    # 空 / 整段静音先挡掉：librosa 对全零会反常地把整段当成"非静音"返回 [[0,N]]，
+    # 若不挡，静音会被当一段送去识别，而 Whisper 在静音上会幻觉出文字。
+    if pcm.size == 0 or float(np.max(np.abs(pcm))) < 1e-4:
+        return []
+    intervals = librosa.effects.split(pcm, top_db=top_db)  # 非静音区间 [[s,e],...]（样本下标）
+    if len(intervals) == 0:
+        return []
+    # 间隔过短的相邻段（同一句内的小停顿）合并，避免把一句切碎
+    merge_gap = int(merge_gap_s * sr)
+    merged = [[int(intervals[0][0]), int(intervals[0][1])]]
+    for s, e in intervals[1:]:
+        if int(s) - merged[-1][1] <= merge_gap:
+            merged[-1][1] = int(e)
+        else:
+            merged.append([int(s), int(e)])
+    # 每段前后留一点余量（防切掉字头字尾），丢掉过短的碎片（多半是噪声）
+    pad = int(pad_s * sr)
+    min_len = int(min_seg_s * sr)
+    n = pcm.size
+    segs = []
+    for s, e in merged:
+        if e - s < min_len:
+            continue
+        segs.append((max(0, s - pad), min(n, e + pad)))
+    return segs
+
+
 @router.post("/api/recognition")
 async def api_recognition(
     to_simple: int = Form(1),
@@ -614,26 +651,32 @@ async def api_recognition(
         finally:
             os.unlink(tmp_path)
 
-        result = INFERENCE_CACHE["pipeline"](
-            {"array": pcm, "sampling_rate": 16000},
-            return_timestamps=True,
-            generate_kwargs=generate_kwargs,
-        )
-        print("RAW RESULT =", result)
+        # VAD 切句：长音频按停顿切成句级片段，逐句识别（每段落回"短句"训练分布），
+        # 再用片段起点偏移时间戳后拼接。短音频会切成 1 段，等价于原来的整段识别。
+        segments = segment_audio(pcm, 16000)
+        print(f"[recognition] 时长 {pcm.size / 16000:.1f}s，VAD 切出 {len(segments)} 段")
 
         results = []
-        chunks = result.get("chunks", [])
-        for chunk in chunks:
-            text = chunk["text"]
-            if to_simple == 1:
-                text = convert(text, "zh-cn")
-            if remove_pun == 1:
-                text = remove_punctuation(text)
-            results.append({
-                "text": text,
-                "start": chunk["timestamp"][0],
-                "end": chunk["timestamp"][1]
-            })
+        for seg_start, seg_end in segments:
+            seg_pcm = pcm[seg_start:seg_end]
+            offset = seg_start / 16000.0
+            out = INFERENCE_CACHE["pipeline"](
+                {"array": seg_pcm, "sampling_rate": 16000},
+                return_timestamps=True,
+                generate_kwargs=generate_kwargs,
+            )
+            for chunk in out.get("chunks", []):
+                text = chunk["text"]
+                if to_simple == 1:
+                    text = convert(text, "zh-cn")
+                if remove_pun == 1:
+                    text = remove_punctuation(text)
+                ts = chunk.get("timestamp") or (None, None)
+                results.append({
+                    "text": text,
+                    "start": (ts[0] + offset) if ts[0] is not None else offset,
+                    "end": (ts[1] + offset) if ts[1] is not None else None,
+                })
 
         return {
             "code": 0,
