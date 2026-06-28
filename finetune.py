@@ -46,6 +46,7 @@ add_arg("local_files_only", type=bool, default=True, help="是否只在本地加
 
 add_arg("num_train_epochs", type=int, default=20,      help="训练的轮数")
 add_arg("early_stopping_patience", type=int, default=5, help="早停耐心：连续多少次评估 CER 没改善就停（按 eval_steps 计；0=关闭）")
+add_arg("load_best_model_at_end", type=bool, default=True, help="训练结束是否按 CER 加载最优 checkpoint。上线训练用 True；k 折评估务必设 False，否则会用测试折挑 checkpoint 造成泄漏（checkpoint-final 改存末轮模型）")
 add_arg("generation_max_length",   type=int, default=128, help="评估时生成解码的最大长度（句子短，128 足够，越小评估越快）")
 add_arg("attn_implementation",     type=str, default="sdpa", choices=["sdpa", "eager", "flash_attention_2"], help="注意力实现：sdpa(默认,稳;支持fp32)/flash_attention_2(快但与评估时 generate 的 fp32 输入冲突)/eager")
 add_arg("language", type=str, default="Chinese", help="设置语言，可全称也可简写，如果为None则训练的是多语言")
@@ -211,8 +212,8 @@ def main():
                                  num_train_epochs=args.num_train_epochs,  # 微调训练轮数
                                  save_strategy="steps",  # 指定按照步数保存检查点
                                  eval_strategy="steps",  # 指定按照步数评估模型
-                                 load_best_model_at_end=True,  # 训练结束加载最优 checkpoint
-                                 metric_for_best_model="cer",  # 按 CER 选最优 checkpoint，而不是默认的 eval_loss（loss 最低 ≠ 识别最准）
+                                 load_best_model_at_end=args.load_best_model_at_end,  # 训练结束加载最优 checkpoint（k 折评估传 False 避免测试折泄漏）
+                                 metric_for_best_model="cer",  # 按 CER 选最优 checkpoint，而不是默认的 eval_loss（loss 最低 ≠ 识别最准；load_best=False 时此项被忽略）
                                  greater_is_better=False,
                                  predict_with_generate=True,
                                  generation_max_length=args.generation_max_length,
