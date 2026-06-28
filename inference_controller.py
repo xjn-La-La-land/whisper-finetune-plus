@@ -515,11 +515,10 @@ def load_model_to_gpu(model_path: str):
     else:
         model = base_model
 
-    if hasattr(processor, "get_decoder_prompt_ids"):
-        model.generation_config.forced_decoder_ids = processor.get_decoder_prompt_ids(
-            language="zh",
-            task="transcribe"
-        )
+    # 不在这里设 forced_decoder_ids：语言/任务在 generate 时通过 generate_kwargs 传
+    # （task=transcribe, language=chinese）。两边都设会冲突 → transformers 告警并忽略 forced_decoder_ids，
+    # 这里显式置 None 清掉旧值，消除告警、避免歧义。
+    model.generation_config.forced_decoder_ids = None
     model.generation_config.suppress_tokens = []
 
     model.to(device)
@@ -541,7 +540,7 @@ def load_model_to_gpu(model_path: str):
 
 
 def segment_audio(pcm: np.ndarray, sr: int = 16000, top_db: int = 30,
-                  pad_s: float = 0.15, merge_gap_s: float = 0.3, min_seg_s: float = 0.2):
+                  pad_s: float = 0.15, merge_gap_s: float = 0.6, min_seg_s: float = 0.2):
     """按静音把长音频切成「句级」片段，返回 [(start_sample, end_sample), ...]。
 
     为什么需要：朗读整段课文这种长音频，直接喂给在「短单句」上微调的模型会严重退化——模型被
@@ -657,26 +656,31 @@ async def api_recognition(
         print(f"[recognition] 时长 {pcm.size / 16000:.1f}s，VAD 切出 {len(segments)} 段")
 
         results = []
-        for seg_start, seg_end in segments:
-            seg_pcm = pcm[seg_start:seg_end]
-            offset = seg_start / 16000.0
-            out = INFERENCE_CACHE["pipeline"](
-                {"array": seg_pcm, "sampling_rate": 16000},
+        if segments:
+            # 批量识别：把所有片段作为输入列表一次性交给 pipeline（batch_size 控制并行），
+            # 避免逐段串行（HF 会因串行调用告警），大幅提速。输出与 segments 顺序一一对应。
+            inputs = [{"array": pcm[s:e], "sampling_rate": 16000} for s, e in segments]
+            outputs = list(INFERENCE_CACHE["pipeline"](
+                inputs,
                 return_timestamps=True,
+                batch_size=DEFAULT_BATCH_SIZE,
                 generate_kwargs=generate_kwargs,
-            )
-            for chunk in out.get("chunks", []):
-                text = chunk["text"]
-                if to_simple == 1:
-                    text = convert(text, "zh-cn")
-                if remove_pun == 1:
-                    text = remove_punctuation(text)
-                ts = chunk.get("timestamp") or (None, None)
-                results.append({
-                    "text": text,
-                    "start": (ts[0] + offset) if ts[0] is not None else offset,
-                    "end": (ts[1] + offset) if ts[1] is not None else None,
-                })
+            ))
+            # 各段时间戳是段内相对值，按段起点偏移后拼接成全局时间轴
+            for (seg_start, _seg_end), out in zip(segments, outputs):
+                offset = seg_start / 16000.0
+                for chunk in out.get("chunks", []):
+                    text = chunk["text"]
+                    if to_simple == 1:
+                        text = convert(text, "zh-cn")
+                    if remove_pun == 1:
+                        text = remove_punctuation(text)
+                    ts = chunk.get("timestamp") or (None, None)
+                    results.append({
+                        "text": text,
+                        "start": (ts[0] + offset) if ts[0] is not None else offset,
+                        "end": (ts[1] + offset) if ts[1] is not None else None,
+                    })
 
         return {
             "code": 0,
