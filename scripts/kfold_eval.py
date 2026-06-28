@@ -51,6 +51,16 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FINETUNE = os.path.join(PROJECT_ROOT, "finetune.py")
 EVAL = os.path.join(PROJECT_ROOT, "scripts", "eval_model.py")
 
+LOG_PATH = None  # 运行时设定：log() 同时写终端 + 该文件；finetune 训练大日志不进此文件，保持干净
+
+
+def log(msg: str = "") -> None:
+    """打印到终端，并（若已设 LOG_PATH）追加到日志文件。"""
+    print(msg)
+    if LOG_PATH:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(str(msg) + "\n")
+
 
 def load_all_data(dataset_dir: str, username: str) -> list:
     """合并 dataset/<user>/{train,test}.json 得到全量样本（已是修好标注的口径）。"""
@@ -73,8 +83,19 @@ def make_folds(n: int, k: int, seed: int):
 
 
 def run(cmd: list) -> None:
-    print("  $ " + " ".join(cmd))
+    """跑子进程，输出直接流到终端（用于 finetune 训练日志：量大，不进 log 文件以免污染汇总）。"""
+    log("  $ " + " ".join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def run_capture(cmd: list) -> None:
+    """跑子进程并把它的输出收进 log 文件（用于 eval_model 的 CER 表 / 错误画像，这些要留档）。"""
+    log("  $ " + " ".join(cmd))
+    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    if proc.stdout:
+        log(proc.stdout.rstrip("\n"))
+    if proc.stderr and proc.stderr.strip():
+        log(proc.stderr.rstrip("\n"))
 
 
 def main() -> None:
@@ -98,19 +119,32 @@ def main() -> None:
                    help="每折的临时训练/数据产物目录")
     p.add_argument("--keep", action="store_true", help="保留每折的模型与数据（默认评完即删，省磁盘）")
     p.add_argument("--dry-run", action="store_true", help="只打印折切分，不训练")
+    p.add_argument("--log-file", default=None,
+                   help="kfold 进度/汇总 + eval 错误画像写到该文件（默认 work 目录下 kfold_<base>.log）；"
+                        "finetune 训练大日志不进此文件")
     args = p.parse_args()
 
     data = load_all_data(args.dataset_dir, args.username)
     folds = make_folds(len(data), args.k, args.seed)
-    print(f"全量 {len(data)} 条 → {args.k} 折，各折测试集大小 {[len(f) for f in folds]}")
-    print(f"配方：base={args.base_model}  epochs={args.epochs}  lr={args.learning_rate}  "
-          f"batch={args.batch_size}x{args.grad_accum}  lora(r={args.lora_r},α={args.lora_alpha},do={args.lora_dropout})  "
-          f"augment={args.augment_config or '无'}\n")
-    if args.dry_run:
-        return
 
     work = os.path.join(args.work_root, args.username)
-    os.makedirs(work, exist_ok=True)
+    if not args.dry_run:
+        global LOG_PATH
+        os.makedirs(work, exist_ok=True)
+        LOG_PATH = args.log_file or os.path.join(
+            work, f"kfold_{os.path.basename(args.base_model.rstrip('/'))}.log")
+        os.makedirs(os.path.dirname(os.path.abspath(LOG_PATH)), exist_ok=True)
+        open(LOG_PATH, "w", encoding="utf-8").close()  # 每次跑覆盖重来
+
+    log(f"全量 {len(data)} 条 → {args.k} 折，各折测试集大小 {[len(f) for f in folds]}")
+    log(f"配方：base={args.base_model}  epochs={args.epochs}  lr={args.learning_rate}  "
+        f"batch={args.batch_size}x{args.grad_accum}  lora(r={args.lora_r},α={args.lora_alpha},do={args.lora_dropout})  "
+        f"augment={args.augment_config or '无'}")
+    if LOG_PATH:
+        log(f"（汇总 + eval 画像写入 {LOG_PATH}；finetune 训练日志只在终端）")
+    log("")
+    if args.dry_run:
+        return
 
     fold_cers, fold_saccs = [], []
     for i, test_idx in enumerate(folds):
@@ -129,7 +163,7 @@ def main() -> None:
         with open(test_path, "w", encoding="utf-8") as f:
             json.dump(fold_test, f, ensure_ascii=False)
 
-        print(f"===== 折 {i + 1}/{args.k}：训练 {len(fold_train)} / 测试 {len(fold_test)} =====")
+        log(f"===== 折 {i + 1}/{args.k}：训练 {len(fold_train)} / 测试 {len(fold_test)} =====")
         # 固定轮数 + 关早停 + 不按测试折选最优 checkpoint（checkpoint-final = 末轮模型）。
         # 三者缺一不可：只关早停而留 load_best_model_at_end=True，仍会用测试折从若干 checkpoint
         # 里挑 CER 最低的那个 → 测试折泄漏、分数偏乐观。这里全部堵死，得到诚实的留出估计。
@@ -152,13 +186,13 @@ def main() -> None:
         ] + ([f"--augment_config_path={args.augment_config}"] if args.augment_config else []))
 
         ckpt = os.path.join(out_dir, "checkpoint-final")
-        run([sys.executable, EVAL, ckpt, "--data", test_path, "--output", result_path])
+        run_capture([sys.executable, EVAL, ckpt, "--data", test_path, "--output", result_path])
 
         with open(result_path, "r", encoding="utf-8") as f:
             res = json.load(f)[0]
         fold_cers.append(res["cer_norm"])
         fold_saccs.append(res["sent_acc"])
-        print(f"  → 折 {i + 1} CER={res['cer_norm']:.1%}  整句准确={res['sent_acc']:.1%}\n")
+        log(f"  → 折 {i + 1} CER={res['cer_norm']:.1%}  整句准确={res['sent_acc']:.1%}\n")
 
         if not args.keep:
             shutil.rmtree(out_dir, ignore_errors=True)
@@ -167,14 +201,17 @@ def main() -> None:
     mean_cer = statistics.mean(fold_cers)
     std_cer = statistics.pstdev(fold_cers) if len(fold_cers) > 1 else 0.0
     mean_sacc = statistics.mean(fold_saccs)
-    print("=" * 60)
-    print(f"{args.k} 折 CER：" + "  ".join(f"{c:.1%}" for c in fold_cers))
-    print(f"平均 CER = {mean_cer:.1%}  ±{std_cer:.1%}（std=噪声地板，改动提升需 > 此值才算真）")
-    print(f"平均整句准确 = {mean_sacc:.1%}")
-    print("=" * 60)
-    print("⚠️ 同源乐观仍在：全部数据来自同一次录音 → 绝对值偏乐观，此数字仅用于【配方对比】。")
+    log("=" * 60)
+    log(f"配方 base={args.base_model}  epochs={args.epochs}  augment={args.augment_config or '无'}")
+    log(f"{args.k} 折 CER：" + "  ".join(f"{c:.1%}" for c in fold_cers))
+    log(f"平均 CER = {mean_cer:.1%}  ±{std_cer:.1%}（std=噪声地板，改动提升需 > 此值才算真）")
+    log(f"平均整句准确 = {mean_sacc:.1%}")
+    log("=" * 60)
+    log("⚠️ 同源乐观仍在：全部数据来自同一次录音 → 绝对值偏乐观，此数字仅用于【配方对比】。")
     if not args.keep:
-        print(f"（每折模型已清理；数据/结果留在 {work}，加 --keep 可保留模型）")
+        log(f"（每折模型已清理；数据/结果留在 {work}，加 --keep 可保留模型）")
+    if LOG_PATH:
+        log(f"\n📄 本次完整汇总已写入：{LOG_PATH}")
 
 
 if __name__ == "__main__":
