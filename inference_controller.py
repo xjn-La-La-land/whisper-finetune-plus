@@ -540,13 +540,18 @@ def load_model_to_gpu(model_path: str):
 
 
 def segment_audio(pcm: np.ndarray, sr: int = 16000, top_db: int = 30,
-                  pad_s: float = 0.15, merge_gap_s: float = 0.6, min_seg_s: float = 0.2):
+                  pad_s: float = 0.15, merge_gap_s: float = 1.0,
+                  min_seg_s: float = 0.2, max_seg_s: float = 25.0):
     """按静音把长音频切成「句级」片段，返回 [(start_sample, end_sample), ...]。
 
     为什么需要：朗读整段课文这种长音频，直接喂给在「短单句」上微调的模型会严重退化——模型被
     特化成「短语音 + 大片静音」的 30s 窗口分布，塞满连续语音的 30s 块对它是分布外。先按停顿切成
     短句、逐句识别再拼接，能让每段都落回训练分布；切在自然停顿也避免 30s 硬切切碎词。
     用 librosa 能量门限，零额外依赖。短音频（无内部长停顿）会被切成 1 段，等价于原来的整段识别。
+
+    注意「段数」不是越少越好：模型是在「单条短句」上微调的，理想是**每段 ≈ 一句话**才落回训练
+    分布。merge_gap_s 用来把同句内的小停顿（朗读者读得慢、字间断顿）并回去，避免一句被切碎；
+    max_seg_s 是安全上限，防止把连续语音并成超长块——那会退回「长音频分布外」的老问题。
     """
     # 空 / 整段静音先挡掉：librosa 对全零会反常地把整段当成"非静音"返回 [[0,N]]，
     # 若不挡，静音会被当一段送去识别，而 Whisper 在静音上会幻觉出文字。
@@ -555,14 +560,16 @@ def segment_audio(pcm: np.ndarray, sr: int = 16000, top_db: int = 30,
     intervals = librosa.effects.split(pcm, top_db=top_db)  # 非静音区间 [[s,e],...]（样本下标）
     if len(intervals) == 0:
         return []
-    # 间隔过短的相邻段（同一句内的小停顿）合并，避免把一句切碎
+    # 间隔够短的相邻段（同一句内的小停顿）合并，避免把一句切碎；但合并后不得超过 max_seg_s。
     merge_gap = int(merge_gap_s * sr)
+    max_len = int(max_seg_s * sr)
     merged = [[int(intervals[0][0]), int(intervals[0][1])]]
     for s, e in intervals[1:]:
-        if int(s) - merged[-1][1] <= merge_gap:
-            merged[-1][1] = int(e)
+        s, e = int(s), int(e)
+        if s - merged[-1][1] <= merge_gap and e - merged[-1][0] <= max_len:
+            merged[-1][1] = e
         else:
-            merged.append([int(s), int(e)])
+            merged.append([s, e])
     # 每段前后留一点余量（防切掉字头字尾），丢掉过短的碎片（多半是噪声）
     pad = int(pad_s * sr)
     min_len = int(min_seg_s * sr)
@@ -581,6 +588,10 @@ async def api_recognition(
     remove_pun: int = Form(0),
     num_beams: int = Form(1),
     model_name: str = Form("whisper-large-v3"),
+    top_db: int = Form(30),
+    merge_gap_s: float = Form(1.2),
+    max_seg_s: float = Form(25.0),
+    punctuate: int = Form(1),
     audio: UploadFile = File(...),
     current_user: str = Depends(get_current_user),
 ):
@@ -652,10 +663,13 @@ async def api_recognition(
 
         # VAD 切句：长音频按停顿切成句级片段，逐句识别（每段落回"短句"训练分布），
         # 再用片段起点偏移时间戳后拼接。短音频会切成 1 段，等价于原来的整段识别。
-        segments = segment_audio(pcm, 16000)
-        print(f"[recognition] 时长 {pcm.size / 16000:.1f}s，VAD 切出 {len(segments)} 段")
+        segments = segment_audio(pcm, 16000, top_db=top_db,
+                                 merge_gap_s=merge_gap_s, max_seg_s=max_seg_s)
+        print(f"[recognition] 时长 {pcm.size / 16000:.1f}s，VAD 切出 {len(segments)} 段 "
+              f"(top_db={top_db} merge_gap_s={merge_gap_s} max_seg_s={max_seg_s})")
 
-        results = []
+        results = []      # 逐 whisper-chunk 明细（带全局时间戳），前端可做高亮/定位
+        seg_texts = []    # 每个 VAD 段的整段文本，用于拼全文 / 加标点
         if segments:
             # 批量识别：把所有片段作为输入列表一次性交给 pipeline（batch_size 控制并行），
             # 避免逐段串行（HF 会因串行调用告警），大幅提速。输出与 segments 顺序一一对应。
@@ -669,6 +683,7 @@ async def api_recognition(
             # 各段时间戳是段内相对值，按段起点偏移后拼接成全局时间轴
             for (seg_start, _seg_end), out in zip(segments, outputs):
                 offset = seg_start / 16000.0
+                parts = []
                 for chunk in out.get("chunks", []):
                     text = chunk["text"]
                     if to_simple == 1:
@@ -681,13 +696,38 @@ async def api_recognition(
                         "start": (ts[0] + offset) if ts[0] is not None else offset,
                         "end": (ts[1] + offset) if ts[1] is not None else None,
                     })
+                    parts.append(text)
+                seg_texts.append("".join(parts).strip())
 
-        return {
+        # 把各段识别文本按顺序拼成整段全文（朗读整篇课文场景要的是连续转写）。
+        # 模型是在「去标点的短句」上微调的，自身基本不产标点，直接拼会是一长串没断句的字。
+        # punctuate=1 时按 VAD 切出的停顿补一层「近似标点」：每个停顿（段边界）补「，」、
+        # 全文末尾补「。」。这是基于停顿的近似，不是真正的句法标点——要更准需另接中文标点恢复
+        # 模型做后处理。remove_pun=1（显式要求去标点）时不补。
+        do_punct = punctuate == 1 and remove_pun != 1
+        nonempty = [t for t in seg_texts if t]
+        if do_punct:
+            # 先削掉模型可能带出的零散尾标点，避免和补的标点重复
+            cleaned = [t.rstrip("，。,.！？!?、；;：: ") for t in nonempty]
+            cleaned = [t for t in cleaned if t]
+            full_text = ("，".join(cleaned) + "。") if cleaned else ""
+        else:
+            full_text = "".join(nonempty)
+
+        payload = {
             "code": 0,
-            "results": results,
+            "text": full_text,           # 整段拼接后的全文（已按停顿补近似标点）
+            "results": results,          # 分段明细（带全局时间戳），前端可做高亮/定位
             "used_model": model_name,
-            "used_model_type": selected_type
+            "used_model_type": selected_type,
         }
+
+        # 终端打印，便于调试：全文 + 逐段 + 完整 JSON
+        print(f"[recognition] 全文：{full_text}")
+        print("[recognition] 分段：" + " | ".join(seg_texts))
+        print("[recognition] JSON：" + json.dumps(payload, ensure_ascii=False))
+
+        return payload
     finally:
         # 推理结束 / 异常退出，都要释放 GPU 状态（不卸载模型，仅置回 IDLE）
         async with GPU_LOCK:

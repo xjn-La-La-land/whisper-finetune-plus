@@ -275,7 +275,13 @@ export default {
                 const t = data.used_model_type === 'base' ? 'base' : 'finetuned';
                 usedModelType.value = `${data.used_model} (服务端·${t})`;
                 await typeStatus(`✅ 模型加载就绪 [${usedModelType.value}]，开始解码...`, 'system');
-                for (const chunk of data.results) await typeTranscript(chunk);
+                // 长音频在服务端按停顿（VAD）切句识别，这里展示**整合后的全文**（data.text），
+                // 而不是逐段碎句；分段明细 data.results 仍带时间戳，留作后续高亮/定位用。
+                if (data.text) {
+                    await typeTranscript({ start: 0, end: null, text: data.text });
+                } else {
+                    await typeStatus('（未识别到语音内容）', 'system');
+                }
                 await typeStatus('✨ 识别完成！等待下一次指令...', 'system');
             } catch (err) {
                 await typeStatus(`❌ ${friendlyNetworkError()}`, 'error');
