@@ -1,7 +1,10 @@
 # main.py
 import os
 import mimetypes
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+
+load_dotenv()   # 读取同目录 .env，已设的环境变量不会被覆盖
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles

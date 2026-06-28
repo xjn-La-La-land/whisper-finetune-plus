@@ -28,6 +28,7 @@ numpy==1.26.4
 
 # --- FastAPI 后端 ---
 # fastapi 0.95.x 必须搭配 pydantic v1；任一升级到 v2 都需要改 BaseModel 写法
+python-dotenv==1.1.1
 fastapi==0.95.1
 starlette==0.26.1
 pydantic==1.10.26
